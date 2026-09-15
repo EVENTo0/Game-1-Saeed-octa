@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#0a0713" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="description" content="SAEED ROYALE — سعيد رويال. EVENTO Project Development." />
+<title>SAEED ROYALE — سعيد رويال</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐙</text></svg>" />
+<link rel="stylesheet" href="/src/ui/style.css" />
+</head>
+<body>
+<canvas id="game-canvas"></canvas>
+
+<!-- ============ IN-GAME HUD ============ -->
+<div id="hud" class="screen hidden" aria-hidden="true">
+  <div id="crosshair"><span></span><span></span><span></span><span></span></div>
+
+  <div class="hud-top">
+    <div class="hud-chip" id="zone-chip">
+      <span class="chip-label" id="zone-label">المنطقة آمنة</span>
+      <span class="chip-value" id="zone-timer">--</span>
+    </div>
+    <div class="hud-chip" id="enemy-chip">
+      <span class="chip-label" data-i18n="enemies">الأعداء</span>
+      <span class="chip-value" id="enemy-count">5</span>
+    </div>
+    <canvas id="minimap" width="132" height="132" aria-hidden="true"></canvas>
+  </div>
+
+  <div id="toast-stack" aria-live="polite"></div>
+  <div id="zone-warning" class="hidden">المنطقة تضيق</div>
+  <div id="damage-vignette"></div>
+
+  <div class="hud-bottom-left">
+    <div class="health-wrap">
+      <div class="health-bar"><div id="health-fill"></div></div>
+      <div class="health-num"><span id="health-value">100</span></div>
+    </div>
+    <div class="medkit-row">
+      <button class="hud-btn small" data-action="heal" id="btn-heal" aria-label="use med kit">
+        <span class="ico">✚</span><span id="medkit-count">0</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="hud-bottom-right">
+    <div id="weapon-panel">
+      <div id="weapon-name">لا يوجد سلاح</div>
+      <div id="ammo-line"><span id="ammo-mag">0</span><span class="sep">/</span><span id="ammo-reserve">0</span></div>
+    </div>
+  </div>
+
+  <div id="pickup-prompt" class="hidden">
+    <span class="key">E</span>
+    <span id="pickup-text">التقاط</span>
+  </div>
+
+  <div id="mansour-bubble" class="hidden">
+    <strong id="mansour-name">عم منصور</strong>
+    <p id="mansour-line">يا سعيد... خل عنك البطولة، وين القهوة؟</p>
+  </div>
+
+  <!-- ============ TOUCH CONTROLS ============ -->
+  <div id="touch-layer">
+    <div id="joystick-zone"></div>
+    <div id="joystick-base"><div id="joystick-knob"></div></div>
+    <div id="look-zone"></div>
+
+    <div class="btn-cluster">
+      <button class="hud-btn fire" data-action="fire" aria-label="fire">●</button>
+      <button class="hud-btn" data-action="aim" aria-label="aim">◎</button>
+      <button class="hud-btn" data-action="jump" aria-label="jump">⤒</button>
+      <button class="hud-btn" data-action="crouch" aria-label="crouch">⤓</button>
+      <button class="hud-btn" data-action="reload" aria-label="reload">⟳</button>
+      <button class="hud-btn" data-action="interact" aria-label="interact">✋</button>
+      <button class="hud-btn" data-action="swap" aria-label="switch weapon">⇄</button>
+    </div>
+  </div>
+
+  <button id="btn-pause" class="corner-btn" aria-label="pause">❚❚</button>
+</div>
+
+<!-- ============ SPLASH ============ -->
+<div id="splash" class="screen overlay">
+  <div class="octa-mark">🐙</div>
+  <h1 class="brand">سعيد رويال</h1>
+  <h2 class="brand-en">SAEED ROYALE</h2>
+  <p class="studio" data-i18n="studio">إيفينتو لتطوير المشاريع</p>
+  <p class="hint" id="splash-hint" data-i18n="tapToStart">اضغط للبدء</p>
+</div>
+
+<!-- ============ MAIN MENU ============ -->
+<div id="menu" class="screen overlay hidden">
+  <div class="menu-inner">
+    <div class="octa-mark small">🐙</div>
+    <h1 class="brand" data-i18n="title">سعيد رويال</h1>
+    <p class="studio" data-i18n="studio">إيفينتو لتطوير المشاريع</p>
+    <button class="menu-btn primary" id="btn-play" data-i18n="play">ابدأ</button>
+    <button class="menu-btn" id="btn-settings" data-i18n="settings">الإعدادات</button>
+    <div class="lang-toggle" role="group" aria-label="language">
+      <button id="lang-ar" class="lang">AR</button>
+      <span class="lang-sep">|</span>
+      <button id="lang-en" class="lang">EN</button>
+    </div>
+    <p class="hint" data-i18n="controlsHint">حرّك بالعصا اليسرى — انظر بالسحب على اليمين</p>
+  </div>
+</div>
+
+<!-- ============ SETTINGS ============ -->
+<div id="settings" class="screen overlay hidden">
+  <div class="menu-inner">
+    <h2 data-i18n="settings">الإعدادات</h2>
+    <label class="row"><span data-i18n="sensitivity">حساسية النظر</span>
+      <input type="range" id="set-sens" min="0.3" max="2.5" step="0.1" value="1" /></label>
+    <label class="row"><span data-i18n="quality">جودة الرسوم</span>
+      <select id="set-quality">
+        <option value="low">LOW</option>
+        <option value="med" selected>MED</option>
+        <option value="high">HIGH</option>
+      </select></label>
+    <label class="row"><span>VOLUME</span>
+      <input type="range" id="set-volume" min="0" max="1" step="0.05" value="0.5" /></label>
+    <button class="menu-btn" id="btn-settings-back" data-i18n="back">رجوع</button>
+  </div>
+</div>
+
+<!-- ============ PAUSE ============ -->
+<div id="pause" class="screen overlay hidden">
+  <div class="menu-inner">
+    <h2 data-i18n="paused">إيقاف مؤقت</h2>
+    <button class="menu-btn primary" id="btn-resume" data-i18n="resume">متابعة</button>
+    <button class="menu-btn" id="btn-restart" data-i18n="restart">إعادة الجولة</button>
+    <button class="menu-btn" id="btn-quit" data-i18n="quit">القائمة الرئيسية</button>
+  </div>
+</div>
+
+<!-- ============ VICTORY ============ -->
+<div id="victory" class="screen overlay hidden">
+  <div class="menu-inner">
+    <div class="octa-mark small">🐙</div>
+    <h1 class="win" data-i18n="victoryTitle">مبروك يا سعيد!</h1>
+    <p class="sub" data-i18n="victorySub">أنت بطل الجولة</p>
+    <p class="tag" data-i18n="victoryTag">VICTORY</p>
+    <div class="stats"><span id="win-kills">0</span> · <span id="win-time">0:00</span></div>
+    <button class="menu-btn primary" id="btn-play-again" data-i18n="playAgain">العب مرة أخرى</button>
+    <button class="menu-btn" id="btn-win-menu" data-i18n="quit">القائمة الرئيسية</button>
+  </div>
+</div>
+
+<!-- ============ DEFEAT ============ -->
+<div id="defeat" class="screen overlay hidden">
+  <div class="menu-inner">
+    <h1 class="lose" data-i18n="defeatTitle">انتهت الجولة</h1>
+    <p class="sub" data-i18n="defeatSub">حظاً أوفر في الجولة القادمة</p>
+    <p class="tag" data-i18n="defeatTag">TRY AGAIN</p>
+    <div class="stats"><span id="lose-kills">0</span> · <span id="lose-time">0:00</span></div>
+    <button class="menu-btn primary" id="btn-retry" data-i18n="playAgain">العب مرة أخرى</button>
+    <button class="menu-btn" id="btn-lose-menu" data-i18n="quit">القائمة الرئيسية</button>
+  </div>
+</div>
+
+<div id="rotate-hint" class="hidden"><span data-i18n="landscapeHint">أدر الجهاز أفقياً</span></div>
+<div id="fps-counter" class="hidden">0</div>
+
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>

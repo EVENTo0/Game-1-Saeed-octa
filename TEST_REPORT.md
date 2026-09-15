@@ -1,0 +1,210 @@
+# TEST REPORT — SAEED ROYALE
+
+Date: 2026-09-15
+Build under test: production build (`npm run build`) served by `vite preview`
+Browser: Chromium (Playwright), software WebGL (SwiftShader)
+Phone profile: Pixel 5, **landscape**, `hasTouch: true`, `isMobile: true`
+
+---
+
+## Summary
+
+```
+BUILD:            PASS
+UNIT TESTS:       73/73 PASS
+SMOKE (E2E):      56/56 PASS
+MOBILE CONTROLS:  PASS
+ARABIC RTL:       PASS
+COMBAT:           PASS
+AI:               PASS
+ZONE:             PASS
+VICTORY LOOP:     PASS
+CONSOLE ERRORS:   none
+```
+
+Nothing below was marked PASS from code reading. Every line was executed —
+unit tests through Vitest, everything else by driving the real build in a real
+browser with real touch events.
+
+---
+
+## 1. Unit tests — `npm test`
+
+73 tests, 6 files, ~1s. These cover the pure simulation modules (no DOM, no WebGL).
+
+| File | Tests | Covers |
+|---|---|---|
+| `tests/weapons.test.js` | 15 | Ammo consumption, fire-rate cooldown, dry fire, reload timing, partial reload from a low reserve, melee, damage falloff, hitscan hits/blocks/misses, spread cone bounds, shotgun pellets |
+| `tests/player.test.js` | 19 | Spawn state, forward/camera-relative movement, walk vs run vs crouch vs aim speeds, jump arc and landing, pitch clamping, wall blocking, movement stops on death, med-kit heal and interruption, standing on boxes, step-height limits, circle push-out, line of sight, map integrity (spawns clear of geometry, loot in bounds), camera never inside a wall |
+| `tests/ai.test.js` | 12 | Wandering, detection, LOS blocked by a wall, firing, spawn-grace hold-fire, reaction delay, reload instead of dry fire, death stops the bot, fleeing the ring, zone damage, round reset, no sinking through map geometry |
+| `tests/zone.test.js` | 6 | Opening radius, no shrink during the wait, phase-by-phase shrink, final ring, damage only outside and scaled by dt, safe-point calculation, reset |
+| `tests/loot.test.js` | 13 | Two-slot cap and swap, duplicate weapon becomes ammo, switching/cycling, med-kit cap, pickup range, taking a weapon/ammo/med kit, refusing ammo with no weapon, dropping a replaced weapon, reset |
+| `tests/i18n.test.js` | 8 | AR is default, AR/EN key parity, no empty strings, Arabic script present, the required Arabic lines verbatim, RTL flag, fallback, bilingual HUD lines |
+
+**Result: 73/73 PASS.**
+
+---
+
+## 2. End-to-end smoke test — `npm run smoke`
+
+56 checks against the production build in a browser. Full output below.
+
+### Boot and menus
+| # | Check | Result |
+|---|---|---|
+| 1 | Game boots without a page error | PASS |
+| 2 | Splash screen shown | PASS |
+| 3 | Main menu opens from splash | PASS |
+| 4 | Splash tap does not fall through onto a menu button | PASS |
+
+### Arabic / RTL
+| # | Check | Result |
+|---|---|---|
+| 5 | Arabic is default, `dir=rtl`, title renders `سعيد رويال` | PASS |
+| 6 | EN toggle switches to `dir=ltr`, `SAEED ROYALE` | PASS |
+| 7 | Toggling back restores Arabic | PASS |
+| 35 | Zone warning shows Arabic text (`أنت خارج المنطقة الآمنة!`) | PASS |
+| 39 | Victory headline is exactly `مبروك يا سعيد!` | PASS |
+| 40 | Victory sub-line is exactly `أنت بطل الجولة` | PASS |
+| 44 | Defeat headline is exactly `انتهت الجولة` | PASS |
+
+### World and rendering
+| # | Check | Result |
+|---|---|---|
+| 8 | HUD visible in-game | PASS |
+| 9 | Map loads, player spawns alive, 86+ colliders present | PASS |
+| 10 | Five named opponents alive | PASS |
+| 11 | 20 loot pickups placed | PASS |
+| 12 | Canvas renders actual pixels (readPixels at screen centre) | PASS — `[227,196,159,255]` |
+
+### Mobile controls
+| # | Check | Result |
+|---|---|---|
+| 13 | Touch controls active on a phone profile | PASS |
+| 14 | Movement stick stays on the **left** in Arabic RTL | PASS |
+| 15 | Action buttons stay on the **right** in Arabic RTL | PASS |
+| 16 | Virtual joystick moves Saeed | PASS — moved 6.54 m |
+| 17 | Drag on the right turns the camera | PASS — Δyaw 0.403 |
+| 18 | JUMP button leaves the ground | PASS |
+| 19 | CROUCH button lowers Saeed | PASS |
+| 20 | AIM button enters aim mode | PASS |
+| 21 | FIRE button shoots and spends ammo | PASS — 30 → 28 |
+| 22 | RELOAD button starts a reload | PASS |
+
+### Loot, inventory, healing
+| # | Check | Result |
+|---|---|---|
+| 23 | Standing on loot shows the `التقاط` prompt | PASS |
+| 24 | INTERACT picks up the med kit | PASS |
+| 25 | Second weapon fills the free slot | PASS — `OCTA_AR, DESERT_CLAW` |
+| 26 | Weapon switch changes the active weapon | PASS |
+| 27 | Med kit restores health | PASS — 40 → 85 |
+
+### Combat and AI
+| # | Check | Result |
+|---|---|---|
+| 28 | Match still running after the duel | PASS |
+| 29 | Shooting damages an enemy | PASS — 100 → 0 HP |
+| 30 | Enough hits eliminate an enemy | PASS |
+| 31 | Enemy counter updates on the HUD | PASS — 5 → 4 |
+| 32 | AI detects the player and lands shots | PASS — player 100 → 87.4 HP |
+
+### Safe zone
+| # | Check | Result |
+|---|---|---|
+| 33 | Zone shrinks over time | PASS — 118.0 → 116.4 |
+| 34 | Standing outside costs health | PASS — 100 → 96.9 |
+| 35 | ZONE CLOSING warning appears | PASS |
+
+### Match loop
+| # | Check | Result |
+|---|---|---|
+| 36 | Pause opens and freezes the match | PASS |
+| 37 | Resume returns to play | PASS |
+| 38 | Victory triggers when all five are down | PASS |
+| 41 | PLAY AGAIN restarts **in place** (no page reload) | PASS |
+| 42 | Restart resets bots (5), health (100) and loot (20) | PASS |
+| 43 | Defeat triggers when Saeed dies | PASS |
+| 45 | Retry starts a fresh round | PASS |
+
+### Easter egg
+| # | Check | Result |
+|---|---|---|
+| 46 | Uncle Mansour greets Saeed near the village | PASS |
+| 47 | He says `يا سعيد... خل عنك البطولة، وين القهوة؟` | PASS |
+
+### Performance budget
+| # | Check | Result |
+|---|---|---|
+| 48 | Static world merged into few draw calls | PASS — 180 meshes → 13 |
+| 49 | Frame inside the mobile draw-call budget | PASS — 93 draw calls, 4 990 triangles |
+
+### Desktop path
+| # | Check | Result |
+|---|---|---|
+| 51 | WASD moves the player | PASS — 3.95 m |
+| 52 | `C` toggles crouch | PASS |
+| 53 | Left click fires | PASS |
+| 54 | `R` reloads | PASS |
+| 55 | `Esc` pauses | PASS |
+| 56 | No console errors on the desktop run | PASS |
+| 57 | No runtime console errors across the whole session | PASS |
+
+**Result: 56/56 PASS.**
+
+Screenshots are written to `tests/screenshots/` on every run (git-ignored — run
+`npm run smoke` to regenerate them).
+
+---
+
+## 3. Bugs found and fixed during testing
+
+These were all found by the tests, not by inspection.
+
+| # | Bug | How it surfaced | Fix |
+|---|---|---|---|
+| 1 | Bot **Layla** spawned inside the rocky hill volume | Unit test asserting no spawn is inside geometry | Moved her spawn to open ground; assertion kept as a regression test |
+| 2 | **Bots could never notice a player standing right behind them.** A wandering bot faced its waypoint, and detection required a ~100° front cone, so it could be shot in the back indefinitely without reacting | AI unit test was flaky across RNG seeds — the bot wandered away from a player 14 m in front of it | Added `awarenessRange` (18 m): inside that distance a bot notices the player regardless of facing, while line of sight is still required |
+| 3 | **Touch controls mirrored in Arabic.** The HUD used CSS logical properties, so switching to RTL moved the movement stick to the right and the fire button to the left | E2E look-drag test produced Δyaw 0.000 — the drag was landing in the joystick zone | All thumb-facing UI moved to physical `left`/`right`. Text still flips; controls never do. Two regression checks added |
+| 4 | **Tapping the splash activated a menu button underneath it.** The splash closed on `pointerdown`, so the follow-up `click` hit whatever was now under the finger — on a short landscape screen, the SETTINGS button | E2E run failed to reach the main menu after a layout change made the geometry line up | Splash closes on `click`; new screens get a 300–500 ms `pointer-events: none` guard. Regression check added |
+| 5 | **The player was shot ~27 HP before they could react at round start** | E2E restart check found HP 73 instead of 100 immediately after PLAY AGAIN | 3-second spawn grace where bots hunt but hold fire, plus one bot spawn moved further from the player start. Unit test added |
+| 6 | **The rifle pointed at the sky.** The hand socket's forward axis is the arm's -Y, not its +Z | Visual review of a screenshot | Socket rotated a quarter turn about X; documented in ARCHITECTURE.md so future GLB rigs get it right |
+| 7 | **The weapon was invisible in third person** — arms hung at the sides with the gun tucked behind the body | Visual review | Added an armed low-ready carry pose to the animator |
+| 8 | **OCTA blocked the aim view**, sitting exactly where the over-the-shoulder camera looks | Visual review | Companion moved to the off-shoulder side and behind, and shrinks while aiming |
+| 9 | **Camera clipped through walls indoors** — a single wall-ray misses corners and cannot help when the focus point is itself inside geometry | Visual review of a village screenshot | Added an inside-geometry fallback that walks the camera in until clear; unit test sweeps six interiors × 12 angles |
+| 10 | **Geometry merge crashed** with mixed indexed/non-indexed geometries (Dodecahedron vs Box) | Console error assertion in the E2E run | Normalise everything to non-indexed before merging |
+| 11 | **Victory screen's PLAY AGAIN button fell below the fold** on a 293 px-tall landscape phone | Screenshot review | Compact menu layout under `max-height: 460px` |
+| 12 | **Weapon panel overlapped the action buttons** | Screenshot review | Panel moved to the top-right, beside the pause button |
+
+---
+
+## 4. Not covered by automated tests
+
+Honest gaps, so nobody mistakes this report for more than it is:
+
+- **Real device performance.** The smoke test renders through SwiftShader
+  (software), so its ~14 FPS figure means nothing. What *is* asserted is the
+  draw-call and triangle budget (93 / 4 990), which is what governs phone
+  performance. Frame rate on actual hardware has not been measured.
+- **iOS Safari** specifically. Chromium only. The audio-unlock-on-tap and
+  `viewport-fit=cover` handling are written for it but untested there.
+- **Touch gestures beyond the implemented set** — pinch, three-finger, stylus.
+- **Long-session stability.** The longest automated run is about 90 seconds.
+- **Audio output.** The WebAudio graph is built and its calls execute without
+  error, but nothing verifies what it sounds like.
+- **Accessibility** beyond `aria-label`s on the buttons.
+
+---
+
+## 5. Reproducing this report
+
+```bash
+npm ci            # or: npm install
+npm run build     # BUILD
+npm test          # UNIT TESTS
+npm run smoke     # E2E (requires the build above)
+```
+
+The smoke test starts its own `vite preview` server on port 4173, runs both a
+phone context and a desktop context, writes screenshots to `tests/screenshots/`,
+and exits non-zero if any check fails.
