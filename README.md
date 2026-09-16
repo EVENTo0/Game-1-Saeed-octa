@@ -11,6 +11,16 @@ Runs in any modern mobile browser — no install, no account, no backend.
 
 ---
 
+## PLAY NOW
+
+**https://saeed-royale.vercel.app** — open it on your phone, turn to landscape,
+tap the splash, press **ابدأ / PLAY**. Nothing to install.
+
+Every push to `claude/saeed-royale-mobile-mvp-tmtzxi` (the repo's production
+branch) redeploys automatically.
+
+---
+
 ## QUICK START
 
 ```bash
