@@ -46,23 +46,26 @@ export function resolveXZ(pos, radius, colliders, feetY, height, step = 0.55) {
   return pos;
 }
 
-/** Does segment from a to b (XZ, at height y) hit a box? Used by AI line-of-sight. */
+/**
+ * Is the straight line from a to b blocked by geometry? Used for AI line of
+ * sight, so it MUST agree with what a bullet does.
+ *
+ * This used to march the segment in ~1.2m steps, which stepped straight over
+ * 0.35m-thick walls: bots "saw" and shot players through buildings while the
+ * player's own bullets correctly stopped at the wall. It now uses the exact
+ * same continuous raycast the bullets use.
+ */
 export function segmentBlocked(ax, az, ay, bx, bz, by, colliders) {
-  const steps = Math.max(4, Math.ceil(Math.hypot(bx - ax, bz - az) / 1.2));
-  for (let i = 1; i < steps; i++) {
-    const t = i / steps;
-    const x = ax + (bx - ax) * t;
-    const z = az + (bz - az) * t;
-    const y = ay + (by - ay) * t;
-    for (const c of colliders) {
-      if (c.tag === 'bounds') continue;
-      if (y > c.top || y < c.bottom) continue;
-      if (Math.abs(x - c.x) > c.hw) continue;
-      if (Math.abs(z - c.z) > c.hd) continue;
-      return true;
-    }
-  }
-  return false;
+  const dx = bx - ax, dy = by - ay, dz = bz - az;
+  const len = Math.hypot(dx, dy, dz);
+  if (len < 1e-6) return false;
+  const hit = raycastBoxes(
+    { x: ax, y: ay, z: az },
+    { x: dx / len, y: dy / len, z: dz / len },
+    colliders,
+    len,
+  );
+  return hit.hit && hit.distance < len;
 }
 
 /**

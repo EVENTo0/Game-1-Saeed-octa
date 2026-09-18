@@ -208,6 +208,93 @@ async function main() {
     || globalThis.SAEED.game.player.inventory.weapon.mag === 30));
   await sleep(2200);
 
+  // ---------- aim assist (touch only) ----------
+  const assist = await page.evaluate(async () => {
+    const g = globalThis.SAEED.game;
+    const bot = g.bots.find((b) => b.alive);
+    const ARENA = { x: 75, z: -60 };
+    bot.pos.x = ARENA.x; bot.pos.z = ARENA.z; bot.pos.y = 0;
+    g.player.pos.x = ARENA.x; g.player.pos.z = ARENA.z + 20; g.player.pos.y = 0;
+    g.player.pitch = 0;
+    const onTarget = Math.atan2(-(bot.pos.x - g.player.pos.x), -(bot.pos.z - g.player.pos.z));
+    const enabledAtStart = g.aimAssistEnabled;
+
+    // Aim slightly off target and see whether the assist closes the gap. The bot
+    // charges the player the moment it sees them, so pin it in place for the
+    // measurement — otherwise this measures the bot running, not the assist.
+    const measure = async (enabled) => {
+      g.aimAssistEnabled = enabled;
+      g.player.yaw = onTarget + 0.10;
+      g.player.aiming = true;
+      globalThis.SAEED.input.state.aim = true;
+      const pin = setInterval(() => {
+        bot.pos.x = ARENA.x; bot.pos.z = ARENA.z; bot.pos.y = 0;
+        g.player.pos.x = ARENA.x; g.player.pos.z = ARENA.z + 20; g.player.pos.y = 0;
+      }, 16);
+      await new Promise((r) => setTimeout(r, 700));
+      clearInterval(pin);
+      globalThis.SAEED.input.state.aim = false;
+      return Math.abs(g.player.yaw - onTarget);
+    };
+    const withAssist = await measure(true);
+    const without = await measure(false);
+    g.aimAssistEnabled = enabledAtStart;
+    return { enabledAtStart, withAssist, without };
+  });
+  ok('aim assist is on by default on a phone', assist.enabledAtStart);
+  ok('aim assist pulls the crosshair onto a target', assist.withAssist < assist.without * 0.5,
+    `off-target ${assist.withAssist.toFixed(4)} rad with assist vs ${assist.without.toFixed(4)} without`);
+  ok('aim assist can be turned off in settings', await page.evaluate(async () => {
+    const box = document.getElementById('set-assist');
+    box.checked = false;
+    box.dispatchEvent(new Event('change'));
+    await new Promise((r) => setTimeout(r, 100));
+    const off = globalThis.SAEED.game.aimAssistEnabled === false;
+    box.checked = true;
+    box.dispatchEvent(new Event('change'));
+    await new Promise((r) => setTimeout(r, 100));
+    return off && globalThis.SAEED.game.aimAssistEnabled === true;
+  }));
+
+  // ---------- directional damage indicator ----------
+  const dmgDir = await page.evaluate(async () => {
+    const g = globalThis.SAEED.game;
+    const host = document.getElementById('damage-dirs');
+    host.innerHTML = '';
+    g.player.yaw = 0;                                  // facing -Z
+    // attacker directly behind → indicator should point backwards (~pi)
+    g.hud.showDamageFrom(g._screenAngleTo({ x: g.player.pos.x, z: g.player.pos.z + 10 }));
+    const behind = host.lastChild?.style.transform ?? '';
+    // attacker to the right → ~ +pi/2
+    g.hud.showDamageFrom(g._screenAngleTo({ x: g.player.pos.x + 10, z: g.player.pos.z }));
+    const right = host.lastChild?.style.transform ?? '';
+    const rad = (t) => parseFloat((t.match(/rotate\(([-0-9.]+)rad\)/) || [])[1] ?? 'NaN');
+    return { count: host.children.length, behind: rad(behind), right: rad(right) };
+  });
+  ok('damage indicator is created when hit', dmgDir.count >= 2);
+  ok('damage indicator points behind for a shot from behind',
+    Math.abs(Math.abs(dmgDir.behind) - Math.PI) < 0.2, `${dmgDir.behind.toFixed(2)} rad`);
+  ok('damage indicator points right for a shot from the right',
+    Math.abs(dmgDir.right - Math.PI / 2) < 0.2, `${dmgDir.right.toFixed(2)} rad`);
+
+  // ---------- crosshair reacts to spread ----------
+  const cross = await page.evaluate(async () => {
+    const g = globalThis.SAEED.game;
+    const el = document.getElementById('crosshair');
+    const gap = () => parseFloat(getComputedStyle(el).getPropertyValue('--ch-gap'));
+    g.player.aiming = false; g.player.vel.x = 0; g.player.vel.z = 0;
+    globalThis.SAEED.input.state.aim = false;
+    await new Promise((r) => setTimeout(r, 200));
+    const hip = gap();
+    globalThis.SAEED.input.state.aim = true;
+    await new Promise((r) => setTimeout(r, 300));
+    const ads = gap();
+    globalThis.SAEED.input.state.aim = false;
+    return { hip, ads };
+  });
+  ok('crosshair tightens when aiming down sights', cross.ads < cross.hip,
+    `hip ${cross.hip}px vs ads ${cross.ads}px`);
+
   // ---------- loot pickup on touch ----------
   const pickedUp = await page.evaluate(async () => {
     const g = globalThis.SAEED.game;

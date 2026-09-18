@@ -50,14 +50,30 @@ export const CONFIG = {
     loseSightTime: 3.5,
   },
   zone: {
+    // Tuned against tests/balance.mjs (N=200/cell). The old 253s ring barely
+    // compressed the map before a match ended, so a cautious player wandered
+    // instead of meeting anyone: shortening it to 172s doubled that player's
+    // win rate (7.5% -> 15.0%) and pulled median match length 122s -> 93s,
+    // with no measurable effect on an aggressive player.
     startRadius: 118,
     phases: [
-      { wait: 45, shrink: 35, radius: 78, dps: 2 },
-      { wait: 35, shrink: 30, radius: 46, dps: 4 },
-      { wait: 30, shrink: 28, radius: 22, dps: 7 },
-      { wait: 25, shrink: 25, radius: 9,  dps: 11 },
+      { wait: 28, shrink: 26, radius: 70, dps: 2 },
+      { wait: 22, shrink: 22, radius: 40, dps: 4 },
+      { wait: 20, shrink: 20, radius: 18, dps: 7 },
+      { wait: 16, shrink: 18, radius: 7,  dps: 11 },
     ],
   },
+  aim: {
+    // Touch aim assist. Gentle by design: a narrow cone, strength that scales
+    // with how close the crosshair already is, and never a hard snap.
+    enabled: true,
+    cone: 0.16,           // rad (~9 deg) half-angle the assist can act inside
+    rate: 6.0,            // how fast it closes the remaining angle, per second
+    hipFireScale: 0.45,   // assist is much weaker when not aiming down sights
+    maxPerFrame: 0.5,     // never close more than half the gap in one frame
+    range: 60,            // metres
+  },
+
   loot: {
     pickupRange: 2.4,
   },

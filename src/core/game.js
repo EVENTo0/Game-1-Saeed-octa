@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
 import { EventBus } from './events.js';
-import { makeRng, damp } from './mathx.js';
+import { makeRng, damp, clamp } from './mathx.js';
 import { buildMap } from '../world/mapData.js';
 import { buildWorld, buildZoneVisual } from '../world/worldView.js';
 import { LootView } from '../world/lootView.js';
@@ -12,7 +12,9 @@ import { ProceduralAnimator, AnimState, resolveState } from '../player/animator.
 import { ThirdPersonCamera } from '../camera/thirdPersonCamera.js';
 import { EffectsSystem } from '../combat/effects.js';
 import { traceShot, spreadDir } from '../combat/hitscan.js';
-import { falloff } from '../combat/damage.js';
+import { computeAimAssist, viewFromPlayer } from '../combat/aimAssist.js';
+import { haptics } from '../ui/haptics.js';
+import { botShotDamage } from '../combat/botFire.js';
 import { buildWeaponModel } from '../weapons/weaponModels.js';
 import { WEAPONS } from '../weapons/weapons.js';
 import { SafeZone } from '../zone/zone.js';
@@ -55,6 +57,8 @@ export class Game {
     this._shotTargets = [];
     this._fireHeld = false;
     this._zoneWarned = -1;
+    this.aimAssistEnabled = false;   // main.js enables this on touch devices
+    this.assistTargetId = null;
   }
 
   // ---------------------------------------------------------------- renderer
@@ -202,6 +206,19 @@ export class Game {
     // --- look ---
     this.player.look(input.lookDX, input.lookDY);
 
+    // Touch aim assist. Applied after the raw look so it bends where the thumb
+    // put the crosshair rather than fighting it.
+    if (this.aimAssistEnabled) {
+      const a = computeAimAssist(
+        viewFromPlayer(this.player), this._targets(), this.colliders, CONFIG.aim, dt,
+      );
+      this.player.yaw += a.dYaw;
+      this.player.pitch = clamp(
+        this.player.pitch + a.dPitch, CONFIG.camera.minPitch, CONFIG.camera.maxPitch,
+      );
+      this.assistTargetId = a.targetId;
+    }
+
     // --- movement / physics ---
     this.player.update(dt, input, this.colliders);
 
@@ -259,7 +276,12 @@ export class Game {
     if (zd > 0) {
       this.player.takeDamage(zd, this.time);
       this._zoneTick = (this._zoneTick ?? 0) + dt;
-      if (this._zoneTick > 0.85) { this._zoneTick = 0; this.hud.flashDamage(); this.audio.hurt(); }
+      if (this._zoneTick > 0.85) {
+        this._zoneTick = 0;
+        this.hud.flashDamage();
+        haptics.zone();
+        this.audio.hurt();
+      }
       if (!this.player.alive) this._lose();
     }
 
@@ -442,6 +464,7 @@ export class Game {
     const before = bot.alive;
     bot.health.damage(amount, this.time);
     this.audio.hit(true);
+    haptics.hitDealt();
     // being shot at pulls the bot's attention even if it did not see the shooter
     bot.lastKnown = { x: this.player.pos.x, z: this.player.pos.z };
     bot.lostTimer = 0;
@@ -455,11 +478,20 @@ export class Game {
     const label = `${this.i18n.t('killed')}: ${bot.name}`;
     this.hud.toast(label, cause === 'player' ? 'kill' : '');
     this.octaMood = 1.6;
-    if (cause === 'player') this.audio.pickup();
+    if (cause === 'player') { this.audio.pickup(); haptics.kill(); }
     const i = this.bots.indexOf(bot);
     const bv = this.botViews[i];
     if (bv) bv.anim.play(AnimState.DEATH);
     this.events.emit('bot:death', { bot, cause });
+  }
+
+  /** Angle of a world point relative to the player's facing: 0 = ahead, +x = right. */
+  _screenAngleTo(point) {
+    const p = this.player;
+    const dx = point.x - p.pos.x, dz = point.z - p.pos.z;
+    const fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw);
+    const rx = Math.cos(p.yaw), rz = -Math.sin(p.yaw);
+    return Math.atan2(dx * rx + dz * rz, dx * fx + dz * fz);
   }
 
   _playerCanSee(bot) {
@@ -484,10 +516,12 @@ export class Game {
         };
     this.effects.tracer(muzzle, to);
     if (!accurate || !p.alive) return;
-    const dmg = CONFIG.bots.damage * falloff(dist, def.range) * (def.class === 'shotgun' ? 1.4 : 1);
+    const dmg = botShotDamage(def, dist);
     p.takeDamage(dmg, this.time);
     this._healing = false;
     this.hud.flashDamage();
+    this.hud.showDamageFrom(this._screenAngleTo(bot.pos));
+    haptics.hitTaken();
     this.audio.hurt();
     this.cam.addShake(0.35);
     this.playerAnim.play(AnimState.HIT);
@@ -520,12 +554,14 @@ export class Game {
     this.state = MatchState.WON;
     this.octaMood = 6;
     this.audio.victory();
+    haptics.victory();
     this.events.emit('match:win', { kills: this.player.kills, time: this.matchTime });
   }
   _lose() {
     if (this.state !== MatchState.PLAYING) return;
     this.state = MatchState.LOST;
     this.audio.defeat();
+    haptics.death();
     this.events.emit('match:lose', { kills: this.player.kills, time: this.matchTime });
   }
   pause() { if (this.state === MatchState.PLAYING) { this.state = MatchState.PAUSED; return true; } return false; }

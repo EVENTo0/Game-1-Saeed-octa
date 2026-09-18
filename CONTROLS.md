@@ -35,6 +35,14 @@ input state, so gameplay code never branches on device type.
 | **✚ MED KIT** | Bottom-left, next to health | Use a med kit (+45 HP over 1.6s) |
 | **❚❚** | Top-right | Pause |
 
+### Reading the HUD in a fight
+
+- **The crosshair opens and closes with your real shot cone** — it widens while
+  you move and while hip firing, and tightens the moment you aim. If it is wide,
+  your bullets are going wide.
+- **Red arcs around the crosshair point at whoever just shot you.** An arc at
+  the bottom means the shot came from behind you.
+
 Design notes:
 - Every touch target is at least 52 px, and 60 px on normal-height screens.
 - Multi-touch is tracked per pointer id — move, look and fire work simultaneously.
@@ -76,5 +84,13 @@ Main menu → **الإعدادات / SETTINGS**
 - **Graphics quality** — LOW (no shadows, 1.0× pixel ratio), MED (default),
   HIGH (2.0× pixel ratio). Drop to LOW if your phone struggles.
 - **Volume**
+- **Aim assist / مساعدة التصويب** — on by default on touch devices, off on
+  desktop (a mouse does not need it). It only pulls when the crosshair is
+  already within ~9° of an enemy you can actually see, pulls harder the closer
+  you already are, and never snaps. Much weaker when hip firing than when
+  aiming down sights. Turn it off here if you would rather aim unaided.
+- **Haptics / الاهتزاز** — short vibration when you are hit, land a hit, take
+  zone damage, or win. Silently does nothing on devices without support
+  (including iOS Safari).
 
 Settings and the language choice persist in `localStorage`.

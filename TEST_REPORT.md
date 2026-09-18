@@ -1,6 +1,6 @@
 # TEST REPORT — SAEED ROYALE
 
-Date: 2026-09-15
+Date: 2026-09-18 (polish & balance pass; MVP report below it)
 Build under test: production build (`npm run build`) served by `vite preview`
 Browser: Chromium (Playwright), software WebGL (SwiftShader)
 Phone profile: Pixel 5, **landscape**, `hasTouch: true`, `isMobile: true`
@@ -11,8 +11,9 @@ Phone profile: Pixel 5, **landscape**, `hasTouch: true`, `isMobile: true`
 
 ```
 BUILD:            PASS
-UNIT TESTS:       73/73 PASS
-SMOKE (E2E):      56/56 PASS
+UNIT TESTS:       87/87 PASS
+SMOKE (E2E):      63/63 PASS
+BALANCE HARNESS:  2 400 headless matches
 MOBILE CONTROLS:  PASS
 ARABIC RTL:       PASS
 COMBAT:           PASS
@@ -157,6 +158,98 @@ Screenshots are written to `tests/screenshots/` on every run (git-ignored — ru
 
 ---
 
+## 2b. Balance & feel pass (2026-09-18)
+
+### The instrument
+
+`tests/balance.mjs` plays complete matches with no browser, driving the real
+`Player`, `Bot`, `SafeZone`, `LootManager`, `traceShot` and `botShotDamage`.
+Only the *player's decisions* are scripted. Two play styles are reported, since
+one scripted policy is not "the player":
+
+- **aggressive** — fights anything it can see
+- **cautious** — gears up and loots before committing
+
+A human sits between them and plays the heal/disengage loop far better than
+either.
+
+### Shipped configuration (N = 200 matches per cell)
+
+| style | skill | win | median | p90 | kills | pellet acc | heals | timeout |
+|---|---|---|---|---|---|---|---|---|
+| aggressive | 0.35 | 26.5% | 96s | 115s | 2.44 | 35% | 0.48 | 0% |
+| aggressive | 0.55 | 22.5% | 97s | 134s | 2.16 | 52% | 0.33 | 0% |
+| aggressive | 0.75 | 19.5% | 94s | 115s | 2.27 | 75% | 0.33 | 0% |
+| cautious | 0.35 | 11.5% | 97s | 115s | 1.92 | 28% | 0.63 | 0% |
+| cautious | 0.55 | 9.0% | 95s | 115s | 1.93 | 36% | 0.44 | 0.5% |
+| cautious | 0.75 | 13.0% | 95s | 115s | 1.98 | 44% | 0.41 | 0% |
+
+### The headline find: line of sight did not agree with bullets
+
+`segmentBlocked` — the function the AI used to decide whether it could see you —
+marched the line in ~1.2m steps. Map walls are **0.35m thick**. It stepped clean
+over them.
+
+Consequences, all confirmed in the simulator:
+
+- **Bots saw and shot the player through buildings.** Their damage is applied on
+  a successful sight check, so walls did not protect you.
+- The player's own bullets *did* stop at walls. In one instrumented match,
+  **110 of 120 player shots hit world geometry** — 97 of them at 10–20m, while
+  the player believed it had a clear shot.
+- Net effect: **0% win rate**, matches over in 26 seconds, 4.7% accuracy.
+
+It now uses the same continuous raycast the bullets use. One fix:
+
+| metric | before | after |
+|---|---|---|
+| win rate (aggressive, skill 0.55) | 0% | ~30% |
+| median match length | 26s | 138s |
+| player accuracy | 4.7% | 38.9% |
+| kills per match | 0.97 | 3.90 |
+
+Locked down by two regression tests: a thin wall must block sight at every
+angle and distance, and sight must agree with a bullet fired along the same line
+over 400 random lines across the real map.
+
+### Other changes this pass, and why
+
+| change | evidence |
+|---|---|
+| **Bots slide around walls** instead of grinding into them | A chasing bot pinned itself against a building the moment the player broke line of sight. Now tested: it rounds a wall and gets through a doorway gap. |
+| **Zone 253s → 172s** | The old ring barely compressed the map before a match ended. At N=200 the faster ring **doubled the cautious player's win rate (7.5% → 15.0%, ±2.5)**, left the aggressive player unchanged, and pulled median match length 122s → 93s. |
+| **Healing moved out of buildings** | Most loot sat behind a specific doorway; total pickups were 1.5/match with 9 med kits on the map. New rule: healing is always reachable in the open, better weapons stay inside as the risk/reward. |
+| **Touch aim assist** (new) | Not measurable in simulation — verified in-browser instead: it closes a 0.10 rad aiming error to 0.003 rad in 0.7s while ADS, is off on desktop, and is toggleable. |
+| **Directional damage indicator** (new) | The player absorbs ~90 damage a match from bots they cannot locate. Verified: an attacker behind renders at 3.14 rad, to the right at 1.57 rad. |
+| **Crosshair reflects live spread** (new) | Verified: 8.1px hip-fire → 5.4px aiming. |
+| **Haptics** (new) | Guarded `navigator.vibrate`; no-ops where unsupported, including iOS Safari. |
+
+### What the harness could NOT establish — and what I did about it
+
+I tried to tune bot lethality and **failed to resolve it**, so I shipped no
+change to it. Stated plainly because it matters for how much the table above is
+worth:
+
+- Bot damage 9 → 7 → 6, reaction 0.45s → 1.05s, view range 62m → 38m, and
+  `loseSightTime` 3.5s → 1.4s **all produced win rates inside noise** of each
+  other (~20–26%).
+- Win rate does **not** rise with player skill (26.5% → 22.5% → 19.5%), which is
+  backwards.
+- The cause is the scripted player itself: it heals **0.3–0.6 times per match**
+  and dies holding med kits, because its policy only heals when no enemy is
+  visible and it is almost always in contact. Cumulative damage to death is
+  therefore ~100 regardless of the bots' damage *rate* — which is exactly why
+  every lethality knob looked identical.
+
+So: **the absolute win rates above describe a mediocre scripted player, not a
+human.** A person who heals between fights and uses cover should do considerably
+better. Treat the table as a regression baseline and a comparison between
+configurations, not as a prediction of how hard the game is for you.
+
+Deciding this needs real play data, not more simulation.
+
+---
+
 ## 3. Bugs found and fixed during testing
 
 These were all found by the tests, not by inspection.
@@ -193,6 +286,13 @@ Honest gaps, so nobody mistakes this report for more than it is:
 - **Audio output.** The WebAudio graph is built and its calls execute without
   error, but nothing verifies what it sounds like.
 - **Accessibility** beyond `aria-label`s on the buttons.
+- **Whether the balance actually feels right to a human.** The harness measures
+  systems, not fun. Its win rates come from a scripted player with a poor
+  healing policy (see 2b).
+- **Haptics firing on real hardware** — the calls are guarded and executed, but
+  no test can feel a phone vibrate.
+- **Whether aim assist feels too strong or too weak** under a real thumb. It is
+  deliberately toggleable and its strength lives in `CONFIG.aim`.
 
 ---
 
@@ -203,6 +303,7 @@ npm ci            # or: npm install
 npm run build     # BUILD
 npm test          # UNIT TESTS
 npm run smoke     # E2E (requires the build above)
+npm run balance   # headless balance simulation
 ```
 
 The smoke test starts its own `vite preview` server on port 4173, runs both a

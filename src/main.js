@@ -4,6 +4,7 @@ import { I18n } from './ui/i18n.js';
 import { AudioSystem } from './audio/audio.js';
 import { InputManager } from './ui/input.js';
 import { TouchControls, isTouchDevice } from './ui/touchControls.js';
+import { setHaptics } from './ui/haptics.js';
 
 const $ = (id) => document.getElementById(id);
 const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
@@ -24,11 +25,14 @@ input.attachKeyboard(window, canvas);
 const touch = new TouchControls($('hud'), input).attach();
 
 const touchMode = isTouchDevice();
+// Aim assist exists to make up for a thumb on glass; a mouse does not need it.
+game.aimAssistEnabled = touchMode && prefs.assist !== false;
+setHaptics(prefs.haptics !== false);
 hud.setTouch(touchMode);
 touch.setEnabled(false);
 
 function loadPrefs() {
-  const d = { sensitivity: 1, quality: 'med', volume: 0.5 };
+  const d = { sensitivity: 1, quality: 'med', volume: 0.5, assist: true, haptics: true };
   try { return { ...d, ...JSON.parse(localStorage.getItem('saeed_prefs') || '{}') }; }
   catch { return d; }
 }
@@ -156,6 +160,20 @@ sens.addEventListener('input', () => {
 });
 qual.addEventListener('change', () => { prefs.quality = qual.value; game.setQuality(qual.value); savePrefs(prefs); });
 vol.addEventListener('input', () => { prefs.volume = parseFloat(vol.value); audio.setVolume(prefs.volume); savePrefs(prefs); });
+
+const assistBox = $('set-assist'), hapticsBox = $('set-haptics');
+assistBox.checked = prefs.assist !== false;
+hapticsBox.checked = prefs.haptics !== false;
+assistBox.addEventListener('change', () => {
+  prefs.assist = assistBox.checked;
+  game.aimAssistEnabled = touchMode && prefs.assist;
+  savePrefs(prefs);
+});
+hapticsBox.addEventListener('change', () => {
+  prefs.haptics = hapticsBox.checked;
+  setHaptics(prefs.haptics);
+  savePrefs(prefs);
+});
 
 // keyboard shortcuts that live outside gameplay
 window.addEventListener('keydown', (e) => {

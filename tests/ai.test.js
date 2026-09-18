@@ -109,3 +109,39 @@ describe('Bot', () => {
     expect(Number.isFinite(b.pos.x)).toBe(true);
   });
 });
+
+describe('Bot navigation around geometry', () => {
+  // Driven through the real state machine: a bot outside the ring runs for the
+  // safe point every frame, which gives a stable target to steer at.
+  const fleeZone = () => {
+    const z = new SafeZone({ x: 0, z: 8 });
+    z.radius = 4;
+    return z;
+  };
+
+  it('slides around a wall instead of grinding into it', () => {
+    const wall = [box(0, 0, 24, 0.4, 4, 'wall')];
+    const bot = new Bot({ x: 0, z: -8, name: 'Nasser' });
+    const startX = bot.pos.x;
+    for (let t = 0; t < 6; t += 1 / 30) bot.update(1 / 30, ctx({ colliders: wall, zone: fleeZone() }));
+    expect(bot.state).toBe(BotState.FLEE_ZONE);
+    // it should be hunting sideways for a way round, not pinned at x=0
+    expect(Math.abs(bot.pos.x - startX)).toBeGreaterThan(3);
+  });
+
+  it('still drives straight at its target in the open', () => {
+    const bot = new Bot({ x: 0, z: -8, name: 'Salem' });
+    for (let t = 0; t < 6; t += 1 / 30) bot.update(1 / 30, ctx({ colliders: [], zone: fleeZone() }));
+    // reached the ring, and did not wander off sideways doing it
+    expect(bot.pos.z).toBeGreaterThan(2);
+    expect(Math.abs(bot.pos.x)).toBeLessThan(2);
+  });
+
+  it('gets through a doorway gap rather than stopping at the wall', () => {
+    // two wall stubs with a 2m gap in the middle, like the map's buildings
+    const walls = [box(-7, 0, 12, 0.4, 4, 'wall'), box(7, 0, 12, 0.4, 4, 'wall')];
+    const bot = new Bot({ x: 0, z: -8, name: 'Fahad' });
+    for (let t = 0; t < 8; t += 1 / 30) bot.update(1 / 30, ctx({ colliders: walls, zone: fleeZone() }));
+    expect(bot.pos.z).toBeGreaterThan(0);        // made it through
+  });
+});

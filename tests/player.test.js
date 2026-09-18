@@ -180,3 +180,40 @@ describe('camera collision', () => {
     }
   });
 });
+
+describe('line of sight agrees with bullets', () => {
+  // Regression: LOS used to march the segment in ~1.2m steps and stepped clean
+  // over 0.35m-thick walls, so bots shot players through buildings.
+  it('a thin wall blocks sight, at every angle and distance', async () => {
+    const { segmentBlocked } = await import('../src/world/collision.js');
+    const wall = [box(0, 0, 14, 0.35, 4, 'wall')];
+    for (let d = 3; d <= 40; d += 1) {
+      for (let off = -5; off <= 5; off += 0.5) {
+        expect(segmentBlocked(off, -d, 1.2, off, d, 1.2, wall),
+          `offset ${off} distance ${d}`).toBe(true);
+      }
+    }
+  });
+  it('agrees with a bullet fired along the same line', async () => {
+    const { segmentBlocked } = await import('../src/world/collision.js');
+    const { traceShot } = await import('../src/combat/hitscan.js');
+    const { WEAPONS } = await import('../src/weapons/weapons.js');
+    const map = buildMap();
+    const rng = (() => { let s = 5; return () => (s = (s * 16807) % 2147483647) / 2147483647; })();
+    let checked = 0;
+    for (let i = 0; i < 400; i++) {
+      const a = { x: (rng() - 0.5) * 160, z: (rng() - 0.5) * 160, y: 1.13 };
+      const b = { x: (rng() - 0.5) * 160, z: (rng() - 0.5) * 160, y: 1.08 };
+      const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+      const len = Math.hypot(dx, dy, dz);
+      if (len < 4 || len > 70) continue;
+      checked++;
+      const los = segmentBlocked(a.x, a.z, a.y, b.x, b.z, b.y, map.colliders);
+      const shot = traceShot(a, { x: dx / len, y: dy / len, z: dz / len }, map.colliders,
+        [{ id: 't', center: b, radius: 0.62, alive: true }], WEAPONS.OCTA_AR);
+      // if sight is clear the bullet must reach the target, and vice versa
+      expect(los, `los=${los} shot=${shot.kind}`).toBe(shot.kind !== 'actor');
+    }
+    expect(checked).toBeGreaterThan(50);
+  });
+});

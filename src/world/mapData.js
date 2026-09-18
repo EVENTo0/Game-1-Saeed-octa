@@ -78,9 +78,10 @@ export function buildMap() {
     { x: -46, z: -44, kind: 'weapon:OCTA_AR' },
     { x: -20, z: -42, kind: 'weapon:DESERT_CLAW' },
     { x: -32, z: -50, kind: 'ammo' },
-    { x: -28, z: -26, kind: 'medkit' },
+    { x: -28, z: -32, kind: 'medkit' },
     { x: -33, z: -34, kind: 'ammo' },
-    { x: -14, z: -58, kind: 'medkit' },
+    { x: -44, z: -35, kind: 'medkit' },
+    { x: -14, z: -51, kind: 'medkit' },
   );
 
   // ---------- 2. Oasis (centre-east) ----------
@@ -102,6 +103,7 @@ export function buildMap() {
   // small shaded rest-stop by the oasis
   add(building({ x: 22, z: -34, w: 9, d: 7, h: 3.2, door: 'e', style: 'tent' }));
   lootSpots.push({ x: 22, z: -34, kind: 'ammo' });
+  lootSpots.push({ x: 29, z: -32, kind: 'medkit' });
 
   // ---------- 3. Rocky hill (south-east) ----------
   // stacked boxes you can actually climb/stand on
@@ -118,6 +120,7 @@ export function buildMap() {
   lootSpots.push(
     { x: hill.x, z: hill.z, kind: 'weapon:SAEED_50' },
     { x: hill.x + 8, z: hill.z - 6, kind: 'ammo' },
+    { x: hill.x - 9, z: hill.z + 7, kind: 'medkit' },
   );
   // scattered boulders for cover on the approach
   [[26, 30], [30, 52], [58, 24], [20, 46]].forEach(([x, z], i) => {
@@ -156,6 +159,7 @@ export function buildMap() {
     { x: 0, z: 0, kind: 'ammo' },
     { x: 10, z: -8, kind: 'medkit' },
     { x: -8, z: 12, kind: 'weapon:OCTA_AR' },
+    { x: 4, z: 22, kind: 'medkit' },
   );
 
   // ---------- world boundary walls ----------
@@ -165,6 +169,9 @@ export function buildMap() {
   colliders.push(box(-S, 0, 2, S * 2, 12, 'bounds'));
   colliders.push(box(S, 0, 2, S * 2, 12, 'bounds'));
 
+  // Loot rule: HEALING is always reachable in the open, so a player under
+  // pressure can sustain without stopping to navigate a doorway. Better
+  // WEAPONS stay inside buildings as the risk/reward for going in.
   const spawns = {
     player: { x: -4, z: 40 },
     npcMansour: { x: -30, z: -36 },

@@ -39,6 +39,8 @@ export class Bot {
     this.fireTimer = 0;
     this.burstLeft = 0;
     this.moving = false;
+    this.slideTimer = 0;
+    this.slideDir = 1;
     this.health.reset();
     this.weapon = new WeaponInstance(this.weapon.id);
     this.lastKnown = null;
@@ -120,8 +122,19 @@ export class Bot {
     let stopAt = this.state === BotState.ENGAGE ? 12 : 1.4;
     if (this.state === BotState.FLEE_ZONE) { speed = B.chaseSpeed; stopAt = 1.2; }
 
+    if (this.slideTimer > 0) this.slideTimer -= dt;
+
     if (distToTarget > stopAt) {
-      const n = normalize2(dx, dz);
+      let n = normalize2(dx, dz);
+      // Wall-slide: when the last step was eaten by geometry, steer sideways for
+      // a moment instead of grinding into the wall. Without this a chasing bot
+      // pins itself against a building the moment the player breaks line of
+      // sight behind one.
+      if (this.slideTimer > 0) {
+        const a = this.slideDir * 1.15;
+        const ca = Math.cos(a), sa = Math.sin(a);
+        n = { x: n.x * ca - n.z * sa, z: n.x * sa + n.z * ca };
+      }
       this.vel.x = n.x * speed;
       this.vel.z = n.z * speed;
       this.moving = true;
@@ -144,10 +157,19 @@ export class Bot {
     this.pos.x += this.vel.x * dt;
     this.pos.z += this.vel.z * dt;
     resolveXZ(this.pos, this.radius, colliders, this.pos.y, this.height, 0.55);
-    // stuck against geometry while wandering → pick a new target
-    if (this.state === BotState.WANDER &&
-        Math.hypot(this.pos.x - before.x, this.pos.z - before.z) < speed * dt * 0.25) {
-      this.retargetIn = 0;
+
+    const moved = Math.hypot(this.pos.x - before.x, this.pos.z - before.z);
+    const wanted = speed * dt;
+    if (this.moving && moved < wanted * 0.5) {
+      // blocked: commit to a side and keep it for a beat so we do not dither
+      if (this.slideTimer <= 0) {
+        this.slideDir = this.rng() < 0.5 ? 1 : -1;
+        this.slideTimer = 0.8;
+      }
+      // still stuck while wandering → just pick somewhere else to go
+      if (this.state === BotState.WANDER && moved < wanted * 0.25) this.retargetIn = 0;
+    } else if (moved > wanted * 0.85) {
+      this.slideTimer = 0;                    // moving freely again
     }
     this.vel.y += CONFIG.world.gravity * dt;
     this.pos.y += this.vel.y * dt;

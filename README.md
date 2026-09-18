@@ -45,8 +45,9 @@ That is the whole route from clone to play.
 | `npm run dev` | Dev server on `0.0.0.0:5173` — reachable from your phone |
 | `npm run build` | Production build into `dist/` |
 | `npm run preview` | Serve the production build on `0.0.0.0:4173` |
-| `npm test` | 73 unit tests (Vitest, headless, no browser) |
-| `npm run smoke` | 56-check end-to-end browser test (needs `npm run build` first) |
+| `npm test` | 87 unit tests (Vitest, headless, no browser) |
+| `npm run smoke` | 63-check end-to-end browser test (needs `npm run build` first) |
+| `npm run balance` | Headless balance simulation — plays real matches with no browser |
 
 ### Exact local run command
 
@@ -95,10 +96,16 @@ You are **SAEED — سعيد**, dropped into the oasis village with your octopus
 companion **OCTA — أوكتا**. Five opponents are on the map. The safe zone
 shrinks in four phases. Last one standing wins.
 
-- Loot glows: purple = weapon, gold = ammo, green = med kit.
+- Loot glows: purple = weapon, gold = ammo, green = med kit. **Healing is always
+  out in the open; the better weapons are inside buildings** — going in is the
+  risk you take for them.
 - You carry **two weapons** and up to **three med kits**. That is the whole inventory.
 - Standing outside the ring costs health, and it hurts more each phase.
 - Eliminate all five to see **مبروك يا سعيد!**
+- The crosshair opens with your real shot cone — wide means your bullets are
+  going wide. Red arcs point at whoever just shot you.
+- On a phone, **aim assist** is on by default (a gentle pull when the crosshair
+  is already near an enemy). Both it and haptics can be turned off in settings.
 
 Find **عم منصور** near the village well. He has opinions about coffee.
 
@@ -139,8 +146,9 @@ These are deliberate MVP boundaries, not bugs:
 
 - **Single player only.** No networking, no matchmaking, no accounts, no backend.
 - **Five bots**, simple state machine (wander → chase → engage → flee-zone). No
-  squad tactics, no navmesh — they steer toward a point and slide along walls.
-  They can get briefly caught on outside corners of buildings.
+  squad tactics, no navmesh — they steer toward a point and slide along walls,
+  which gets them around a building and through a doorway but will not solve a
+  maze. They do not use cover deliberately and they never loot.
 - **Placeholder characters.** Saeed, the bots, OCTA and Mansour are built from
   primitives at runtime to match the concept silhouette and palette. They are
   designed to be swapped for real GLB models without touching gameplay —
@@ -151,6 +159,11 @@ These are deliberate MVP boundaries, not bugs:
 - **No LOD and no texture atlas** — the map is small and untextured (flat
   colours), so neither earns its complexity yet.
 - **Bots do not loot.** They spawn with a fixed weapon and unlimited reserve ammo.
+- **Bot difficulty is not verified against human play.** The headless balance
+  harness (`npm run balance`) resolved several real bugs, but it could not
+  resolve how lethal the bots should be — every setting landed inside noise
+  because the scripted player heals badly. Its win rates describe that scripted
+  player, not you. See TEST_REPORT.md §2b. Real play data is the next step.
 - The **safe zone drifts deterministically**, not randomly, so runs are reproducible.
 - **Portrait is not supported** — the game asks you to rotate.
 - iOS Safari needs the initial tap before it will play any audio (browser policy).

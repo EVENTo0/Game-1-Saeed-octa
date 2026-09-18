@@ -1,4 +1,5 @@
 import { WEAPONS } from '../weapons/weapons.js';
+import { CONFIG } from '../core/config.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -18,6 +19,7 @@ export class HUD {
       toasts: $('toast-stack'), vignette: $('damage-vignette'),
       crosshair: $('crosshair'), minimap: $('minimap'),
       mansour: $('mansour-bubble'), mansourName: $('mansour-name'), mansourLine: $('mansour-line'),
+      damageDirs: $('damage-dirs'),
       fps: $('fps-counter'),
     };
     this.ctx = this.el.minimap?.getContext('2d') ?? null;
@@ -44,6 +46,22 @@ export class HUD {
     clearTimeout(this._vig);
     this._vig = setTimeout(() => this.el.vignette.classList.remove('hit'), 90);
   }
+  /**
+   * Show where a hit came from. Without this the player just loses health with
+   * no idea which direction to turn — the single most disorienting thing about
+   * taking fire in third person.
+   * @param {number} angle radians, 0 = directly ahead, positive = to the right
+   */
+  showDamageFrom(angle) {
+    if (!this.el.damageDirs || !Number.isFinite(angle)) return;
+    const el = document.createElement('div');
+    el.className = 'dmg-dir';
+    el.style.transform = `rotate(${angle}rad)`;
+    this.el.damageDirs.appendChild(el);
+    setTimeout(() => el.remove(), 900);
+    while (this.el.damageDirs.children.length > 4) this.el.damageDirs.firstChild.remove();
+  }
+
   markHit() {
     this.el.crosshair.classList.add('hit');
     clearTimeout(this._cross);
@@ -86,6 +104,17 @@ export class HUD {
       this.el.ammoReserve.textContent = w.isMelee ? '∞' : String(w.reserve);
     }
     this.el.medkits.textContent = String(p.inventory.medkits);
+
+    // Crosshair opens with the shot cone the weapon ACTUALLY has right now, so
+    // the player can see that moving and hip firing cost them accuracy.
+    if (this.el.crosshair) {
+      let gap = 5;
+      if (w && !w.isMelee) {
+        const moving = Math.min(1, p.speed / CONFIG.player.runSpeed);
+        gap = 4 + w.spreadFor(p.aiming) * 230 + moving * 9;
+      }
+      this.el.crosshair.style.setProperty('--ch-gap', `${gap.toFixed(1)}px`);
+    }
 
     // enemies
     this.el.enemies.textContent = String(game.aliveBots);

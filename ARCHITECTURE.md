@@ -36,6 +36,8 @@ src/
 ├── combat/
 │   ├── damage.js      ← pure: Health, distance falloff
 │   ├── hitscan.js     ← pure: spread cones and shot tracing
+│   ├── botFire.js     ← pure: what one bot bullet does to the player
+│   ├── aimAssist.js   ← pure: touch aim magnetism
 │   └── effects.js     pooled muzzle flashes / tracers / impacts
 ├── weapons/
 │   ├── weapons.js     ← pure: weapon table + WeaponInstance (ammo, reload)
@@ -57,13 +59,14 @@ src/
 │   ├── hud.js         all HUD DOM reads/writes + minimap canvas
 │   ├── input.js       unified input state; keyboard/mouse producer
 │   ├── touchControls.js   touch producer (joystick, look drag, buttons)
+│   ├── haptics.js         guarded navigator.vibrate wrapper
 │   └── style.css
 ├── audio/
 │   └── audio.js       WebAudio synthesis — no sample files
 └── main.js            bootstrap, screen routing, the rAF loop
 ```
 
-The modules marked ← are what the 73 unit tests exercise. They need no DOM, no
+The modules marked ← are what the 87 unit tests exercise. They need no DOM, no
 canvas and no WebGL, which is why the test suite runs in under a second and why
 bugs in movement, damage, loot and the zone get caught before they reach a device.
 
@@ -86,6 +89,32 @@ main.js rAF
 
 `_updateVisualsOnly` also runs while paused/won/lost, so the world keeps
 rendering behind the menus.
+
+---
+
+## Measuring balance without a browser
+
+Because the simulation has no three.js import, **complete matches can be played
+headlessly**. `tests/balance.mjs` does exactly that: it drives the real `Player`,
+`Bot`, `SafeZone`, `LootManager`, `traceShot` and `botShotDamage` and only
+scripts the *player's decisions* — a stand-in for a human thumb.
+
+```bash
+npm run balance             # 200 matches at three skill levels
+node tests/balance.mjs 500 --skill=0.55
+```
+
+`botShotDamage` was extracted into its own module for this reason: a balance
+number measured against a *copy* of the damage formula is worthless, so the
+harness and the shipped game must share the code.
+
+It reports two play styles, because a single scripted policy is not "the
+player": `aggressive` fights anything it can see, `cautious` gears up first. A
+human sits between them.
+
+**What this can and cannot tell you** is important — see TEST_REPORT.md. It
+resolved several real bugs decisively, and it hit a hard limit on questions
+about bot lethality, where its own crude healing policy dominates the result.
 
 ---
 
