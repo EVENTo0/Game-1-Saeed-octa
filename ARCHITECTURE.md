@@ -47,6 +47,8 @@ src/
 ├── world/
 │   ├── mapData.js     ← pure: the map as data (colliders, props, spawns, loot)
 │   ├── collision.js   ← pure: circle-vs-AABB, ground height, raycasts, LOS
+│   ├── textures.js    procedural PBR texture generation (albedo + normal)
+│   ├── sky.js         sky dome shader; also the scene's image-based light
 │   ├── worldView.js   three.js geometry built from mapData
 │   └── lootView.js
 ├── zone/
@@ -171,18 +173,61 @@ Gameplay, tests, HUD, AI and networking-readiness are all unaffected.
 
 ---
 
+## How the rendering works
+
+There are no image or model files in this project, and none are downloaded at
+runtime. Every surface is generated at load:
+
+1. **Colour pipeline.** `ACESFilmicToneMapping` with sRGB output. Without it the
+   desert sun clips to flat white and everything reads as poster paint.
+2. **Sky as a light source.** `sky.js` draws a three-stop gradient dome with a
+   sun disc, and the same dome is rendered into an environment map (PMREM).
+   PBR surfaces then pick up warm bounce from the sand and cool light from the
+   zenith. This is most of the difference between "toy" and "outdoors", and it
+   costs one render at startup.
+   - The gradient has a deliberate pale **mid stop**: interpolating a warm
+     horizon straight into a blue zenith passes through magenta, which is why a
+     two-stop desert sky always looks like a bad sunset.
+   - The dome must stay inside the camera's far plane or it is clipped, leaving
+     a black band across the horizon.
+3. **Procedural PBR textures.** `textures.js` builds tiling value-noise/fbm
+   height fields for sand, mud brick, concrete, rock, wood, cloth and armour,
+   converts each height field into a normal map, and shares one set between the
+   world and every character.
+4. **World-space UVs.** A `BoxGeometry` scaled into a 9m wall drags its 0..1 UVs
+   across the whole face, so brickwork smears. At merge time UVs are re-projected
+   from world position using each face's dominant axis, giving constant texel
+   density everywhere. Texture `repeat` is therefore in **tiles per metre**.
+5. **Displaced ground.** The sand plane is subdivided and displaced into dunes
+   beyond the playable middle, which is kept flat so terrain never fights the
+   collision boxes.
+
+### Replacing this with real scanned assets
+
+Nothing above is load-bearing for gameplay. To swap in photoscanned PBR
+textures, replace the maps returned by `getSharedTextures()`; to swap in GLB
+characters, see "Replacing placeholder characters" above. The material and
+lighting setup they would plug into is already PBR.
+
 ## Performance notes
 
 Decisions made specifically for phones, and what they cost/save:
 
 - **Static geometry merging.** Every map mesh sharing a material is merged into
-  one at load: **180 meshes → 13**. Characters are merged per animated rig node
-  (~25 → ~12 draw calls each), and weapon models into one mesh per material.
-  Whole frame: **~93 draw calls, ~5 000 triangles** including the shadow pass.
-- **Two lights only** — one directional sun (1024² shadow map that follows the
-  player) plus a hemisphere fill. No point lights, no post-processing.
-- **Flat-colour Lambert materials.** No textures at all, so there is nothing to
-  atlas or compress yet, and no texture memory pressure.
+  one at load: **180 meshes → 13**.
+- **Vertex-coloured characters.** A detailed character has seven materials
+  across seven animated rig nodes, which cost ~25 draw calls each and put the
+  frame at 178. Each part's colour is baked into vertex colours at build time
+  so every node collapses to at most two shared materials (`hard` and `soft`),
+  with no visual detail lost. Frame: **~93 draw calls, ~15 000 triangles**
+  including the shadow pass.
+- **Two lights only** — one directional sun whose shadow frustum follows the
+  player, plus a weak hemisphere fill for interiors. Everything else is the
+  environment map. No point lights, no post-processing.
+- **Procedural textures**, 256px on MED and 512px on HIGH, sixteen maps total,
+  shared between world and characters. LOW generates none at all and falls back
+  to flat colours, so the whole texture path can be switched off on weak
+  hardware.
 - **Object pooling** for tracers (48), impacts (32) and muzzle flashes (8).
   A shotgun blast spawns seven tracers per trigger pull; allocating those per
   shot causes GC hitches.

@@ -4,10 +4,13 @@ import { EventBus } from './events.js';
 import { makeRng, damp, clamp } from './mathx.js';
 import { buildMap } from '../world/mapData.js';
 import { buildWorld, buildZoneVisual } from '../world/worldView.js';
+import { createSky } from '../world/sky.js';
 import { LootView } from '../world/lootView.js';
 import { Player } from '../player/player.js';
 import { Bot } from '../ai/bot.js';
-import { buildSaeed, buildBotModel, buildOcta, buildMansour } from '../player/characters.js';
+import { buildSaeed, buildBotModel, buildOcta, buildMansour, setCharacterQuality } from '../player/characters.js';
+import { clearSharedTextures } from '../world/textures.js';
+import { clearCharacterMaterials } from '../player/characters.js';
 import { ProceduralAnimator, AnimState, resolveState } from '../player/animator.js';
 import { ThirdPersonCamera } from '../camera/thirdPersonCamera.js';
 import { EffectsSystem } from '../combat/effects.js';
@@ -24,10 +27,13 @@ import { segmentBlocked } from '../world/collision.js';
 export const MatchState = { IDLE: 'idle', PLAYING: 'playing', PAUSED: 'paused', WON: 'won', LOST: 'lost' };
 
 const QUALITY = {
-  low:  { shadows: false, pixelRatio: 1.0, fogNear: 60, fogFar: 150 },
-  med:  { shadows: true,  pixelRatio: 1.35, fogNear: 90, fogFar: 200 },
-  high: { shadows: true,  pixelRatio: 2.0, fogNear: 130, fogFar: 260 },
+  low:  { shadows: false, pixelRatio: 1.0,  fogNear: 60,  fogFar: 150, shadowMap: 512,  soft: false, env: false },
+  med:  { shadows: true,  pixelRatio: 1.35, fogNear: 110, fogFar: 240, shadowMap: 1024, soft: false, env: true },
+  high: { shadows: true,  pixelRatio: 2.0,  fogNear: 150, fogFar: 320, shadowMap: 2048, soft: true,  env: true },
 };
+
+/** Sun direction, shared by the light and the sky shader so they agree. */
+const SUN_DIR = { x: 0.45, y: 0.62, z: 0.30 };
 
 export class Game {
   constructor(canvas, { audio, hud, i18n, quality = 'med' } = {}) {
@@ -42,6 +48,7 @@ export class Game {
     this.matchTime = 0;
     this.quality = quality;
 
+    setCharacterQuality(quality);
     this.map = buildMap();
     this.colliders = this.map.colliders;
 
@@ -70,36 +77,58 @@ export class Game {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, q.pixelRatio));
     this.renderer.setSize(window.innerWidth, window.innerHeight, false);
     this.renderer.shadowMap.enabled = q.shadows;
-    this.renderer.shadowMap.type = THREE.PCFShadowMap;
-    this.renderer.setClearColor(0xe8c99a);
+    this.renderer.shadowMap.type = q.soft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+    // Filmic response + sRGB output. Without this, bright desert sun clips to
+    // flat white and everything reads as poster paint.
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.0;
   }
   setQuality(name) {
     const q = QUALITY[name] ?? QUALITY.med;
     this.quality = name;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, q.pixelRatio));
     this.renderer.shadowMap.enabled = q.shadows;
+    this.renderer.shadowMap.type = q.soft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
     this.scene.fog.near = q.fogNear;
     this.scene.fog.far = q.fogFar;
     this.sun.castShadow = q.shadows;
+    this.scene.environment = q.env ? this.envMap : null;
+    // Texture resolution is baked at load, so changing it needs a reload; the
+    // settings UI says so rather than silently doing nothing.
+    this.qualityNeedsReload = (name === 'low') !== (this.builtQuality === 'low');
   }
 
   _initScene() {
     const q = QUALITY[this.quality] ?? QUALITY.med;
+    this.builtQuality = this.quality;
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0xe8c99a);
-    this.scene.fog = new THREE.Fog(0xe8c99a, q.fogNear, q.fogFar);
 
-    // Two lights only: one directional sun + hemisphere fill. Cheap on mobile.
-    this.sun = new THREE.DirectionalLight(0xfff0d0, 1.5);
-    this.sun.position.set(48, 70, 30);
+    // ---- sky: both the backdrop and the source of ambient light ----
+    this.sky = createSky({ sunDirection: new THREE.Vector3(SUN_DIR.x, SUN_DIR.y, SUN_DIR.z) });
+    this.scene.add(this.sky.mesh);
+    const horizon = this.sky.horizonColor();
+    this.scene.fog = new THREE.Fog(horizon, q.fogNear, q.fogFar);
+
+    this.envMap = q.env ? this.sky.buildEnvironment(this.renderer) : null;
+    this.scene.environment = this.envMap;
+    this.scene.environmentIntensity = 1.15;
+
+    // ---- direct sun ----
+    // Still only two light sources; the rest of the ambient comes from the
+    // environment map, which is both cheaper and far more convincing.
+    this.sun = new THREE.DirectionalLight(0xfff4e0, 3.1);
+    this.sun.position.set(SUN_DIR.x * 100, SUN_DIR.y * 100, SUN_DIR.z * 100);
     this.sun.castShadow = q.shadows;
-    this.sun.shadow.mapSize.set(1024, 1024);
-    const s = 70;
-    Object.assign(this.sun.shadow.camera, { left: -s, right: s, top: s, bottom: -s, near: 1, far: 200 });
-    this.sun.shadow.bias = -0.0015;
+    this.sun.shadow.mapSize.set(q.shadowMap, q.shadowMap);
+    const s = 55;
+    Object.assign(this.sun.shadow.camera, { left: -s, right: s, top: s, bottom: -s, near: 1, far: 260 });
+    this.sun.shadow.bias = -0.0008;
+    this.sun.shadow.normalBias = 0.03;
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
-    this.scene.add(new THREE.HemisphereLight(0xffe9c4, 0x8a6a45, 0.9));
+    // Interiors get no sun at all, so the hemisphere fill has to carry them.
+    this.scene.add(new THREE.HemisphereLight(0xbfd8ff, 0xc9a97c, 0.9));
 
     this.world = buildWorld(this.map, { quality: this.quality });
     this.scene.add(this.world.group);
@@ -349,8 +378,15 @@ export class Game {
     this.lootView.update(dt, this.time, this.player.pos);
     this.effects.update(dt);
     this.cam.update(dt, this.player, this.colliders);
+    // Follow the player so the shadow frustum stays tight (= sharp shadows on a
+    // small map without a huge shadow map).
     this.sun.target.position.set(this.player.pos.x, 0, this.player.pos.z);
-    this.sun.position.set(this.player.pos.x + 48, 70, this.player.pos.z + 30);
+    this.sun.position.set(
+      this.player.pos.x + SUN_DIR.x * 120,
+      SUN_DIR.y * 120,
+      this.player.pos.z + SUN_DIR.z * 120,
+    );
+    this.sky.mesh.position.copy(this.cam.camera.position);
   }
 
   _updateOcta(dt) {
@@ -573,6 +609,10 @@ export class Game {
     this.cam.resize(w / Math.max(1, h));
   }
   dispose() {
+    clearCharacterMaterials();
+    clearSharedTextures();
+    this.sky?.dispose();
+    this.envMap?.dispose();
     this.effects.dispose();
     this.lootView.dispose();
     this.world.dispose();

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { getSharedTextures } from '../world/textures.js';
 
 /**
  * Placeholder low-poly characters, built from primitives at runtime (zero asset
@@ -9,19 +10,74 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
  */
 
 export const PALETTE = {
-  armor: 0x14121c,
-  armorLight: 0x2a2240,
-  purple: 0x6f3ff5,
+  armor: 0x24212f,
+  armorLight: 0x3a3055,
+  purple: 0x8250ff,
   purpleLight: 0x9b7bff,
-  gold: 0xd4a72c,
+  gold: 0xe8bd47,
   skin: 0xb07a4e,
-  cloth: 0x201a30,
+  cloth: 0x2b2440,
   octa: 0x8b4cf0,
   visor: 0x39e0d0,
 };
 
-const mat = (color, opts = {}) =>
-  new THREE.MeshLambertMaterial({ color, ...opts });
+/**
+ * Characters use the same PBR pipeline as the world. With MeshLambertMaterial
+ * they ignored the environment map entirely and read as flat black cut-outs
+ * next to textured terrain.
+ */
+function mat(color, opts = {}) {
+  const { surface, family = 'hard', ...rest } = opts;
+  const t = surface ? getSharedTextures(CHAR_QUALITY).maps?.[surface] : null;
+  const m = new THREE.MeshStandardMaterial({
+    color,
+    roughness: rest.roughness ?? (t ? t.roughness : 0.78),
+    metalness: rest.metalness ?? (t ? t.metalness : 0.0),
+    map: t ? t.map : null,
+    normalMap: t ? t.normalMap : null,
+    ...rest,
+  });
+  // Authoring material: its colour is baked into vertex colours at build time
+  // and it is then thrown away (see compactRig).
+  m.userData.family = family;
+  return m;
+}
+
+/**
+ * One material per SURFACE FAMILY, shared by every character on the map.
+ *
+ * Detailed characters were costing ~25 draw calls each (7 materials x 7
+ * animated nodes), which put the frame at 178 calls with six of them on
+ * screen. Baking each part's colour into vertex colours collapses that to two
+ * materials per node without losing a single visual detail.
+ */
+let familyMaterials = null;
+function getFamilyMaterials() {
+  if (familyMaterials) return familyMaterials;
+  const t = getSharedTextures(CHAR_QUALITY).maps ?? {};
+  familyMaterials = {
+    hard: new THREE.MeshStandardMaterial({
+      // Metalness above ~0.2 turns dark tactical colours into pure silhouette,
+      // because metals have no diffuse term.
+      vertexColors: true, roughness: 0.48, metalness: 0.14,
+      map: t.armour?.map ?? null, normalMap: t.armour?.normalMap ?? null,
+    }),
+    soft: new THREE.MeshStandardMaterial({
+      vertexColors: true, roughness: 0.93, metalness: 0.0,
+      map: t.cloth?.map ?? null, normalMap: t.cloth?.normalMap ?? null,
+    }),
+  };
+  return familyMaterials;
+}
+export function clearCharacterMaterials() {
+  if (!familyMaterials) return;
+  Object.values(familyMaterials).forEach((m) => m.dispose());
+  familyMaterials = null;
+}
+
+/** Quality the character textures were built at; set once by the Game. */
+let CHAR_QUALITY = 'med';
+export function setCharacterQuality(q) { CHAR_QUALITY = q; }
 
 function part(geo, material, x, y, z) {
   const m = new THREE.Mesh(geo, material);
@@ -41,68 +97,103 @@ export function buildHumanoid(opts = {}) {
   const cloth = opts.cloth ?? PALETTE.cloth;
 
   const root = new THREE.Group();
-  const mArmor = mat(primary);
-  const mAccent = mat(accent);
-  const mGold = mat(gold);
-  const mSkin = mat(PALETTE.skin);
-  const mCloth = mat(cloth);
-  const mVisor = new THREE.MeshBasicMaterial({ color: opts.visor ?? PALETTE.visor });
-  const materials = [mArmor, mAccent, mGold, mSkin, mCloth, mVisor];
+  const mArmor = mat(primary, { family: 'hard' });
+  const mAccent = mat(accent, { family: 'hard' });
+  const mGold = mat(gold, { family: 'hard' });
+  const mSkin = mat(PALETTE.skin, { family: 'soft' });
+  const mCloth = mat(cloth, { family: 'soft' });
+  const mRubber = mat(0x14141a, { family: 'hard' });
+  // the visor glows, so it stays unlit and emissive
+  const mVisor = new THREE.MeshStandardMaterial({
+    color: opts.visor ?? PALETTE.visor,
+    emissive: new THREE.Color(opts.visor ?? PALETTE.visor),
+    emissiveIntensity: 1.4, roughness: 0.15, metalness: 0.1,
+  });
+  const materials = [mArmor, mAccent, mGold, mSkin, mCloth, mVisor, mRubber];
 
   // hips -> spine -> chest -> head, arms and legs hang off spine/hips
   const hips = new THREE.Group(); hips.position.y = 0.92; root.add(hips);
   const spine = new THREE.Group(); hips.add(spine);
 
-  const torso = part(new THREE.BoxGeometry(0.52, 0.62, 0.3), mArmor, 0, 0.3, 0);
+  // Tapered torso: narrow waist under a broad chest reads as a person rather
+  // than a crate, which is most of what a silhouette needs at phone size.
+  spine.add(part(new THREE.BoxGeometry(0.40, 0.24, 0.26), mCloth, 0, 0.14, 0));      // waist
+  const torso = part(new THREE.BoxGeometry(0.50, 0.40, 0.29), mArmor, 0, 0.42, 0);   // ribcage
   spine.add(torso);
-  // chest plate + gold trim
-  spine.add(part(new THREE.BoxGeometry(0.44, 0.26, 0.34), mAccent, 0, 0.42, 0.01));
-  spine.add(part(new THREE.BoxGeometry(0.46, 0.05, 0.33), mGold, 0, 0.26, 0.02));
-  // shoulder pads
-  spine.add(part(new THREE.BoxGeometry(0.18, 0.16, 0.28), mAccent, -0.33, 0.5, 0));
-  spine.add(part(new THREE.BoxGeometry(0.18, 0.16, 0.28), mAccent, 0.33, 0.5, 0));
+  spine.add(part(new THREE.BoxGeometry(0.54, 0.16, 0.31), mArmor, 0, 0.58, 0));      // upper chest
+  // plate carrier, magazine pouches and gold trim
+  spine.add(part(new THREE.BoxGeometry(0.40, 0.30, 0.345), mAccent, 0, 0.47, 0.005));
+  spine.add(part(new THREE.BoxGeometry(0.42, 0.045, 0.35), mGold, 0, 0.31, 0.01));
+  for (let i = -1; i <= 1; i++) {
+    spine.add(part(new THREE.BoxGeometry(0.10, 0.12, 0.07), mRubber, i * 0.12, 0.30, 0.18));
+  }
+  // belt
+  spine.add(part(new THREE.BoxGeometry(0.44, 0.07, 0.29), mRubber, 0, 0.05, 0));
+  // shoulder pads, angled outward
+  const padL = part(new THREE.BoxGeometry(0.17, 0.17, 0.27), mAccent, -0.33, 0.60, 0);
+  padL.rotation.z = 0.18; spine.add(padL);
+  const padR = part(new THREE.BoxGeometry(0.17, 0.17, 0.27), mAccent, 0.33, 0.60, 0);
+  padR.rotation.z = -0.18; spine.add(padR);
+  // neck
+  spine.add(part(new THREE.CylinderGeometry(0.075, 0.085, 0.10, 8), mSkin, 0, 0.70, 0));
 
-  const head = new THREE.Group(); head.position.y = 0.72; spine.add(head);
-  head.add(part(new THREE.BoxGeometry(0.26, 0.28, 0.26), mSkin, 0, 0.02, 0));
-  // shemagh-style hood
-  head.add(part(new THREE.BoxGeometry(0.32, 0.16, 0.32), mCloth, 0, 0.16, 0));
-  head.add(part(new THREE.BoxGeometry(0.30, 0.22, 0.10), mCloth, 0, -0.02, -0.14));
+  const head = new THREE.Group(); head.position.y = 0.78; spine.add(head);
+  head.add(part(new THREE.BoxGeometry(0.235, 0.27, 0.245), mSkin, 0, 0.02, 0));
+  head.add(part(new THREE.BoxGeometry(0.16, 0.09, 0.06), mSkin, 0, -0.05, 0.13));   // jaw/chin
+  // shemagh wrapped over the crown and down the back of the neck
+  head.add(part(new THREE.BoxGeometry(0.30, 0.15, 0.30), mCloth, 0, 0.16, 0));
+  head.add(part(new THREE.BoxGeometry(0.28, 0.24, 0.10), mCloth, 0, -0.03, -0.135));
+  const drape = part(new THREE.BoxGeometry(0.30, 0.18, 0.05), mCloth, 0, -0.14, -0.10);
+  drape.rotation.x = -0.35; head.add(drape);
   // octopus goggles: visor band + two round lenses + tiny tentacle nubs
-  head.add(part(new THREE.BoxGeometry(0.30, 0.09, 0.06), mArmor, 0, 0.04, 0.14));
-  const lens = new THREE.SphereGeometry(0.055, 8, 6);
-  head.add(part(lens, mVisor, -0.075, 0.045, 0.165));
-  head.add(part(lens, mVisor, 0.075, 0.045, 0.165));
+  head.add(part(new THREE.BoxGeometry(0.275, 0.085, 0.055), mRubber, 0, 0.045, 0.125));
+  const lens = new THREE.SphereGeometry(0.052, 10, 8);
+  head.add(part(lens, mVisor, -0.068, 0.048, 0.15));
+  head.add(part(lens, mVisor, 0.068, 0.048, 0.15));
+  head.add(part(new THREE.BoxGeometry(0.30, 0.05, 0.26), mRubber, 0, 0.055, -0.01));  // strap
   if (opts.emblem !== false) {
     const nub = new THREE.SphereGeometry(0.022, 6, 4);
     for (let i = 0; i < 4; i++) {
-      head.add(part(nub, mGold, -0.12 + i * 0.08, 0.10, 0.16));
+      head.add(part(nub, mGold, -0.105 + i * 0.07, 0.10, 0.145));
     }
     // OCTA emblem on the chest
-    spine.add(part(new THREE.SphereGeometry(0.06, 8, 6), mGold, 0, 0.42, 0.18));
+    spine.add(part(new THREE.SphereGeometry(0.055, 10, 8), mGold, 0, 0.50, 0.185));
   }
 
-  const armGeo = new THREE.BoxGeometry(0.13, 0.5, 0.13);
-  const legGeo = new THREE.BoxGeometry(0.16, 0.52, 0.17);
+  // Arms: upper arm, forearm, glove — a two-segment taper reads far better than
+  // one straight box, even without a skeleton.
+  const buildArm = (side) => {
+    const g = new THREE.Group();
+    g.position.set(side * 0.345, 0.60, 0);
+    g.add(part(new THREE.BoxGeometry(0.135, 0.26, 0.135), mArmor, 0, -0.13, 0));
+    g.add(part(new THREE.BoxGeometry(0.115, 0.24, 0.115), mCloth, 0, -0.37, 0));
+    g.add(part(new THREE.BoxGeometry(0.125, 0.06, 0.125), mGold, 0, -0.505, 0));   // cuff
+    g.add(part(new THREE.BoxGeometry(0.115, 0.10, 0.13), mRubber, 0, -0.565, 0.01)); // glove
+    spine.add(g);
+    return g;
+  };
+  const armL = buildArm(-1);
+  const armR = buildArm(1);
 
-  const armL = new THREE.Group(); armL.position.set(-0.34, 0.5, 0); spine.add(armL);
-  armL.add(part(armGeo, mArmor, 0, -0.25, 0));
-  armL.add(part(new THREE.BoxGeometry(0.14, 0.08, 0.14), mGold, 0, -0.46, 0));
-  const armR = new THREE.Group(); armR.position.set(0.34, 0.5, 0); spine.add(armR);
-  armR.add(part(armGeo, mArmor, 0, -0.25, 0));
-  armR.add(part(new THREE.BoxGeometry(0.14, 0.08, 0.14), mGold, 0, -0.46, 0));
-
-  const legL = new THREE.Group(); legL.position.set(-0.14, 0, 0); hips.add(legL);
-  legL.add(part(legGeo, mCloth, 0, -0.28, 0));
-  legL.add(part(new THREE.BoxGeometry(0.18, 0.1, 0.24), mArmor, 0, -0.52, 0.03));
-  const legR = new THREE.Group(); legR.position.set(0.14, 0, 0); hips.add(legR);
-  legR.add(part(legGeo, mCloth, 0, -0.28, 0));
-  legR.add(part(new THREE.BoxGeometry(0.18, 0.1, 0.24), mArmor, 0, -0.52, 0.03));
+  // Legs: thigh, shin, boot.
+  const buildLeg = (side) => {
+    const g = new THREE.Group();
+    g.position.set(side * 0.135, 0, 0);
+    g.add(part(new THREE.BoxGeometry(0.175, 0.30, 0.185), mCloth, 0, -0.16, 0));
+    g.add(part(new THREE.BoxGeometry(0.145, 0.26, 0.16), mCloth, 0, -0.44, 0));
+    g.add(part(new THREE.BoxGeometry(0.165, 0.09, 0.17), mArmor, 0, -0.30, 0.02));  // knee pad
+    g.add(part(new THREE.BoxGeometry(0.175, 0.11, 0.26), mRubber, 0, -0.615, 0.035)); // boot
+    hips.add(g);
+    return g;
+  };
+  const legL = buildLeg(-1);
+  const legR = buildLeg(1);
 
   // Weapon socket on the right hand. The arm hangs down the -Y axis, so the
   // socket is rotated a quarter turn: a weapon modelled pointing down its own
   // +Z then points wherever the arm points.
   const weaponSocket = new THREE.Group();
-  weaponSocket.position.set(0, -0.44, 0.05);
+  weaponSocket.position.set(0, -0.56, 0.05);
   weaponSocket.rotation.x = Math.PI / 2;
   armR.add(weaponSocket);
 
@@ -129,23 +220,34 @@ export function buildHumanoid(opts = {}) {
  * is the difference between 30 and 60fps on a mid-range phone.
  */
 function compactRig(rig) {
+  const fam = getFamilyMaterials();
   for (const node of Object.values(rig)) {
     const meshes = node.children.filter((c) => c.isMesh && c.geometry && !Array.isArray(c.material));
-    if (meshes.length < 2) continue;
-    const byMat = new Map();
+    if (!meshes.length) continue;
+    const groups = new Map();                 // family key -> geometries
+    const keep = [];
     for (const m of meshes) {
-      if (!byMat.has(m.material)) byMat.set(m.material, []);
+      const family = m.material.userData?.family;
+      if (!family || !fam[family]) { keep.push(m); continue; }   // e.g. the emissive visor
       const g = (m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone());
       m.updateMatrix();
       g.applyMatrix4(m.matrix);
-      byMat.get(m.material).push(g);
+      // bake this part's colour into the geometry
+      const c = m.material.color.clone().convertSRGBToLinear();
+      const n = g.attributes.position.count;
+      const colors = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) { colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b; }
+      g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      if (!groups.has(family)) groups.set(family, []);
+      groups.get(family).push(g);
     }
-    for (const m of meshes) node.remove(m);
-    for (const [material, geos] of byMat) {
+    if (!groups.size) continue;
+    for (const m of meshes) { if (!keep.includes(m)) node.remove(m); }
+    for (const [family, geos] of groups) {
       const merged = geos.length === 1 ? geos[0] : mergeGeometries(geos, false);
       geos.forEach((g) => { if (g !== merged) g.dispose(); });
       if (!merged) continue;
-      const mesh = new THREE.Mesh(merged, material);
+      const mesh = new THREE.Mesh(merged, fam[family]);
       mesh.castShadow = true;
       node.add(mesh);
     }

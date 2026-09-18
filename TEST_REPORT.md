@@ -1,6 +1,6 @@
 # TEST REPORT — SAEED ROYALE
 
-Date: 2026-09-18 (polish & balance pass; MVP report below it)
+Date: 2026-09-18 (graphics pass; balance pass and MVP report below it)
 Build under test: production build (`npm run build`) served by `vite preview`
 Browser: Chromium (Playwright), software WebGL (SwiftShader)
 Phone profile: Pixel 5, **landscape**, `hasTouch: true`, `isMobile: true`
@@ -12,7 +12,7 @@ Phone profile: Pixel 5, **landscape**, `hasTouch: true`, `isMobile: true`
 ```
 BUILD:            PASS
 UNIT TESTS:       87/87 PASS
-SMOKE (E2E):      63/63 PASS
+SMOKE (E2E):      64/64 PASS
 BALANCE HARNESS:  2 400 headless matches
 MOBILE CONTROLS:  PASS
 ARABIC RTL:       PASS
@@ -155,6 +155,69 @@ browser with real touch events.
 
 Screenshots are written to `tests/screenshots/` on every run (git-ignored — run
 `npm run smoke` to regenerate them).
+
+---
+
+## 2a. Graphics pass (2026-09-18)
+
+Moved from flat Lambert shading to a physically based pipeline. Everything is
+generated in code — no image or model files were added, and nothing is
+downloaded at runtime.
+
+| | before | after |
+|---|---|---|
+| shading | MeshLambertMaterial, flat colours | MeshStandardMaterial, albedo + normal maps |
+| lighting | directional sun + hemisphere fill | sun + environment map baked from the sky dome |
+| colour | linear output, no tone mapping | sRGB output, ACES filmic tone mapping |
+| sky | flat background colour | three-stop gradient shader with a sun disc |
+| ground | flat plane | subdivided and displaced into dunes beyond the play area |
+| characters | 7 materials × 7 rig nodes | 2 shared vertex-coloured materials per node |
+| draw calls | 93 | 93 |
+| triangles | ~5 000 | ~15 000 |
+| textures | 0 | 16 (generated, 256px on MED) |
+
+### Problems found and fixed while doing it
+
+Each of these was caught by looking at a rendered frame, not by reading code.
+
+| # | Problem | Cause | Fix |
+|---|---|---|---|
+| 1 | Black band across the horizon; sky rendered dark red | The sky dome was scaled to 900 while the camera's far plane was 400 — it was being clipped away | Dome sits inside the far plane; far plane raised to 600 |
+| 2 | Brickwork smeared into long streaks | `BoxGeometry` UVs run 0..1 regardless of scale, so a box stretched into a 9m wall drags one tile across the whole face | UVs re-projected from world position at merge time using each face's dominant axis; texture repeat is now tiles-per-metre |
+| 3 | Whole scene read as dusk | Sky colours were sRGB-converted then tone mapped, landing far below mid grey. The sky is a light source and has to be bright | Sky intensity multiplier, brighter base colours, sun 2.1 → 3.1, environment intensity 1.15 |
+| 4 | Sky had a magenta band | A warm horizon interpolated straight into a blue zenith passes through magenta | Three-stop gradient with a pale mid stop |
+| 5 | Characters were black silhouettes next to a textured world | They were still `MeshLambertMaterial`, which ignores the environment map entirely | Characters moved onto the same PBR pipeline |
+| 6 | Saeed still crushed to a silhouette | `metalness: 0.3` on dark tactical colours — metals have no diffuse term | Metalness dropped to 0.14, base colours lifted |
+| 7 | Draw calls jumped 93 → 178 | The richer characters carried 7 materials across 7 animated nodes | Part colours baked into vertex colours; two shared materials per node. Back to 93 |
+| 8 | Ring wall washed the screen red | An overlay tuned before tone mapping existed | Opacity reduced |
+
+### Verified across all three presets
+
+| preset | draw calls | triangles | textures | shadows | env map | console errors |
+|---|---|---|---|---|---|---|
+| LOW | 127 | 10 260 | 0 | off | off | 0 |
+| MED | 127 | 17 300 | 16 | on | on | 0 |
+| HIGH | 127 | 17 300 | 16 | soft | on | 0 |
+
+(Counts taken standing in open desert with several characters visible; the
+smoke test's budget check reads 93 at its own vantage point. Both are well
+inside the 150-call budget.)
+
+One test needed fixing, and it was the test's fault, not the game's: the med-kit
+check slept a fixed 2 200 ms, but `dt` is clamped to 100 ms, so under software
+rendering the game clock runs slower than the wall clock and a 1.6s heal had not
+finished. It now polls. Healing was never broken — 40 → 85 HP, kit consumed.
+
+### Honest ceiling
+
+This is **stylised-realistic, not photorealistic**: real PBR shading, real
+image-based lighting, real surface detail, but geometry is still built from
+primitives. Photorealism needs photoscanned models and textures. The build
+environment's network policy blocks asset CDNs (Poly Haven, jsDelivr and
+threejs.org all refuse), and the one reachable source — three.js's own example
+textures on GitHub — carries mixed, often unstated licensing that is not
+appropriate for a commercial product. The pipeline is PBR and ready for real
+assets whenever EVENTO licenses them.
 
 ---
 

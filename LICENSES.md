@@ -32,7 +32,12 @@ which ships inside the three.js package under the same MIT license.
 
 **There are no external asset files in this project.** No downloaded models,
 textures, sprites, fonts, sound files or music. This was a deliberate choice: it
-keeps the build tiny, keeps loading instant, and leaves nothing to license.
+keeps the build tiny, keeps loading fast, and leaves nothing to license.
+
+This still holds after the graphics pass. The game now uses physically based
+rendering with albedo and normal maps on every surface, but **those maps are
+generated in code at load time** (`src/world/textures.js`) rather than shipped
+as files. Same for the sky and its environment map (`src/world/sky.js`).
 
 | Asset type | How it is produced | Provenance |
 |---|---|---|
@@ -41,6 +46,8 @@ keeps the build tiny, keeps loading instant, and leaves nothing to license.
 | Map (village, oasis, hill, outpost, props) | Generated from data in `src/world/mapData.js` | Original |
 | VFX (muzzle flash, tracers, impacts) | Pooled primitive meshes in `src/combat/effects.js` | Original |
 | All audio (shots, hits, reload, pickup, heal, zone warning, victory, defeat) | Synthesised live with WebAudio oscillators and noise buffers in `src/audio/audio.js` | Original — no sample files |
+| Surface textures (sand, mud brick, concrete, rock, wood, cloth, armour) | Value-noise/fbm height fields generated at load in `src/world/textures.js`; normal maps derived from the same height fields | Original — no texture files |
+| Sky and environment lighting | Gradient + sun-disc shader in `src/world/sky.js`, baked to an environment map at startup | Original — no HDRI files |
 | Fonts | System font stack (`Noto Kufi Arabic`, `Segoe UI`, `Tahoma`, system-ui). Nothing is downloaded; whichever the device already has is used. | N/A |
 | Icons | Unicode characters and one emoji (🐙) rendered by the device font | N/A |
 
@@ -48,7 +55,13 @@ keeps the build tiny, keeps loading instant, and leaves nothing to license.
 
 Anything dropped into a future `public/assets/` folder must be added to this file
 with its source and license before it is committed. Prefer CC0 / CC-BY sources
-(Kenney, Poly Pizza, OpenGameArt, Freesound) and record the attribution here.
+(Kenney, Poly Pizza, OpenGameArt, Freesound, Poly Haven) and record the
+attribution here.
+
+Note for whoever does this: three.js ships example textures in its GitHub
+repository, and they are easy to reach. They carry **mixed and often unstated
+licensing** and were deliberately not used. For a commercial product, use a
+source whose licence is explicit per file.
 
 ---
 

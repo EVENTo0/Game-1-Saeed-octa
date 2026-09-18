@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { getSharedTextures } from './textures.js';
 
 /**
  * Turns the pure map data into geometry. Everything shares a handful of
@@ -24,25 +25,66 @@ const C = {
 export function buildWorld(map, { quality = 'med' } = {}) {
   const group = new THREE.Group();
   const disposables = [];
-  const M = (c, o) => { const m = new THREE.MeshLambertMaterial({ color: c, ...o }); disposables.push(m); return m; };
+  const textures = getSharedTextures(quality);
+  const T = textures.maps;
 
-  const matMud = M(C.mud), matMudDark = M(C.mudDark), matConcrete = M(C.concrete);
-  const matTent = M(C.tent), matRock = M(C.rock), matWood = M(C.wood);
-  const matRoof = M(C.roof);
+  /**
+   * Physically based material. Falls back to a plain colour on the LOW preset,
+   * where no textures are generated at all.
+   */
+  const M = (color, surface, opts = {}) => {
+    const t = surface ? T[surface] : null;
+    const m = new THREE.MeshStandardMaterial({
+      color,
+      roughness: t ? t.roughness : (opts.roughness ?? 0.9),
+      metalness: t ? t.metalness : (opts.metalness ?? 0.0),
+      map: t ? t.map : null,
+      normalMap: t ? t.normalMap : null,
+      normalScale: t ? new THREE.Vector2(opts.normalScale ?? 1, opts.normalScale ?? 1) : undefined,
+      ...opts.material,
+    });
+    disposables.push(m);
+    return m;
+  };
+
+  const matMud = M(C.mud, 'mud'), matMudDark = M(C.mudDark, 'mud');
+  const matConcrete = M(C.concrete, 'concrete');
+  const matTent = M(C.tent, 'cloth'), matRock = M(C.rock, 'rock');
+  const matWood = M(C.wood, 'wood');
+  const matRoof = M(C.roof, 'mud');
 
   // ---------- ground ----------
-  const groundGeo = new THREE.PlaneGeometry(240, 240, 1, 1);
-  const ground = new THREE.Mesh(groundGeo, M(C.sand));
+  // A displaced plane, not a flat one: gentle dunes give the sun something to
+  // rake across, which is most of what sells "desert" at a distance.
+  const SEG = quality === 'low' ? 24 : 64;
+  const groundGeo = new THREE.PlaneGeometry(260, 260, SEG, SEG);
+  const pos = groundGeo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i);
+    const d = Math.hypot(x, y);
+    // keep the playable middle flat so dunes never fight the collision boxes
+    const falloff = Math.min(1, Math.max(0, (d - 95) / 45));
+    const dune = Math.sin(x * 0.035) * Math.cos(y * 0.028) * 3.2
+      + Math.sin(x * 0.011 + y * 0.013) * 5.0;
+    pos.setZ(i, dune * falloff);
+  }
+  groundGeo.computeVertexNormals();
+  const matSand = M(C.sand, 'sand', { normalScale: 0.8 });
+  const ground = new THREE.Mesh(groundGeo, matSand);
+  ground.userData.worldUV = false;          // plane UVs already tile correctly
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
   group.add(ground);
   disposables.push(groundGeo);
 
-  // darker sand patch under the village to break up the flatness
-  const patchGeo = new THREE.CircleGeometry(46, 20);
-  const patch = new THREE.Mesh(patchGeo, M(C.sandDark));
+  // darker, coarser sand under the village to break up the expanse
+  const patchGeo = new THREE.CircleGeometry(46, 24);
+  const matSandDark = M(C.sandDark, 'sand', { normalScale: 0.6 });
+  const patch = new THREE.Mesh(patchGeo, matSandDark);
+  patch.userData.worldUV = false;
   patch.rotation.x = -Math.PI / 2;
-  patch.position.set(-30, 0.01, -40);
+  patch.position.set(-30, 0.02, -40);
+  patch.receiveShadow = true;
   group.add(patch);
   disposables.push(patchGeo);
 
@@ -79,7 +121,8 @@ export function buildWorld(map, { quality = 'med' } = {}) {
   const palmLeafGeo = new THREE.ConeGeometry(1.5, 0.6, 5);
   const crateGeo = new THREE.BoxGeometry(1, 1, 1);
   const rockGeo = new THREE.DodecahedronGeometry(1, 0);
-  const matPalmT = M(C.palmTrunk), matPalmL = M(C.palmLeaf);
+  const matPalmT = M(C.palmTrunk, 'wood', { normalScale: 0.7 });
+  const matPalmL = M(C.palmLeaf, null, { roughness: 0.78 });
   disposables.push(palmTrunkGeo, palmLeafGeo, crateGeo, rockGeo);
 
   const addPalm = (p) => {
@@ -155,14 +198,17 @@ export function buildWorld(map, { quality = 'med' } = {}) {
       }
       case 'water': {
         const wg = new THREE.CircleGeometry(p.scale, 28);
-        const wm = new THREE.MeshLambertMaterial({ color: C.water, transparent: true, opacity: 0.85 });
+        const wm = new THREE.MeshStandardMaterial({
+          color: C.water, transparent: true, opacity: 0.82,
+          roughness: 0.08, metalness: 0.1,       // water should actually reflect the sky
+        });
         disposables.push(wg, wm);
         const w = new THREE.Mesh(wg, wm);
         w.rotation.x = -Math.PI / 2;
         w.position.set(p.x, 0.06, p.z);
         group.add(w);
         const bankG = new THREE.RingGeometry(p.scale, p.scale + 3.4, 28);
-        const bank = new THREE.Mesh(bankG, M(0xa9c27a));
+        const bank = new THREE.Mesh(bankG, M(0xa9c27a, null, { roughness: 0.85 }));
         bank.rotation.x = -Math.PI / 2;
         bank.position.set(p.x, 0.03, p.z);
         disposables.push(bankG);
@@ -176,7 +222,7 @@ export function buildWorld(map, { quality = 'med' } = {}) {
   // ---------- boundary marker fence (visual only) ----------
   const bGeo = new THREE.BoxGeometry(1, 1, 1);
   disposables.push(bGeo);
-  const bMat = M(0x8a7355);
+  const bMat = M(0x8a7355, 'rock');
   for (const c of map.colliders) {
     if (c.tag !== 'bounds') continue;
     const m = new THREE.Mesh(bGeo, bMat);
@@ -190,11 +236,39 @@ export function buildWorld(map, { quality = 'med' } = {}) {
   return {
     group,
     stats,
+    textures,
     dispose() {
       group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
       disposables.forEach((d) => d.dispose?.());
+      // textures are shared with the characters; the Game disposes them
     },
   };
+}
+
+/**
+ * Re-project UVs from world position so texel density is constant everywhere.
+ *
+ * A BoxGeometry scaled into a 9m x 3.4m wall drags its 0..1 UVs across the
+ * whole face, so brickwork smears. Picking the dominant axis of each face and
+ * projecting world coordinates onto the other two fixes that for all the
+ * axis-aligned architecture in this map, with no extra draw cost.
+ */
+function applyWorldUVs(geometry, scale = 1) {
+  const pos = geometry.attributes.position;
+  const nor = geometry.attributes.normal;
+  if (!pos || !nor) return;
+  const uv = new Float32Array(pos.count * 2);
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const nx = Math.abs(nor.getX(i)), ny = Math.abs(nor.getY(i)), nz = Math.abs(nor.getZ(i));
+    let u, v;
+    if (ny >= nx && ny >= nz) { u = x; v = z; }        // floor / ceiling
+    else if (nx >= nz) { u = z; v = y; }               // wall facing X
+    else { u = x; v = y; }                             // wall facing Z
+    uv[i * 2] = u / scale;
+    uv[i * 2 + 1] = v / scale;
+  }
+  geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
 }
 
 /**
@@ -216,6 +290,7 @@ function mergeStatics(group) {
     // refuses mixed sets, so normalise everything to non-indexed first.
     const g = (o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone());
     g.applyMatrix4(o.matrixWorld);
+    if (o.userData.worldUV !== false) applyWorldUVs(g);
     byMaterial.get(o.material).push(g);
     originals.push(o);
   });
@@ -246,13 +321,13 @@ export function buildZoneVisual() {
   const WALL_H = 22;
   const geo = new THREE.CylinderGeometry(1, 1, WALL_H, 48, 1, true);
   const mat = new THREE.MeshBasicMaterial({
-    color: 0x7a5cff, transparent: true, opacity: 0.18,
+    color: 0x7a5cff, transparent: true, opacity: 0.10,
     side: THREE.DoubleSide, depthWrite: false,
   });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.y = WALL_H / 2;
   const ringGeo = new THREE.RingGeometry(0.985, 1, 64);
-  const ringMat = new THREE.MeshBasicMaterial({ color: 0xbda6ff, transparent: true, opacity: 0.7, side: THREE.DoubleSide });
+  const ringMat = new THREE.MeshBasicMaterial({ color: 0xbda6ff, transparent: true, opacity: 0.55, side: THREE.DoubleSide });
   const ring = new THREE.Mesh(ringGeo, ringMat);
   ring.rotation.x = -Math.PI / 2;
   ring.position.y = 0.08;

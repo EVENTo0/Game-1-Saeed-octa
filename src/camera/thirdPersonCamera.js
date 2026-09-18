@@ -9,7 +9,7 @@ import { damp } from '../core/mathx.js';
  */
 export class ThirdPersonCamera {
   constructor(aspect = 16 / 9) {
-    this.camera = new THREE.PerspectiveCamera(CONFIG.camera.fov, aspect, 0.1, 400);
+    this.camera = new THREE.PerspectiveCamera(CONFIG.camera.fov, aspect, 0.15, 600);
     this.distance = CONFIG.camera.distance;
     this.currentDist = this.distance;
     this.shake = 0;

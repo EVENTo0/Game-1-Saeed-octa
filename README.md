@@ -46,7 +46,7 @@ That is the whole route from clone to play.
 | `npm run build` | Production build into `dist/` |
 | `npm run preview` | Serve the production build on `0.0.0.0:4173` |
 | `npm test` | 87 unit tests (Vitest, headless, no browser) |
-| `npm run smoke` | 63-check end-to-end browser test (needs `npm run build` first) |
+| `npm run smoke` | 64-check end-to-end browser test (needs `npm run build` first) |
 | `npm run balance` | Headless balance simulation — plays real matches with no browser |
 
 ### Exact local run command
@@ -120,6 +120,26 @@ Find **عم منصور** near the village well. He has opinions about coffee.
 
 ---
 
+## Graphics
+
+Physically based rendering, generated entirely at load — **there is not one
+image or model file in this repository, and nothing is downloaded at runtime**:
+
+- ACES filmic tone mapping with sRGB output
+- A shader sky that is also the scene's light source: the same dome is baked
+  into an environment map, so surfaces pick up warm bounce from the sand and
+  cool light from the zenith
+- Procedural PBR textures (albedo + normal) for sand, mud brick, concrete,
+  rock, wood, cloth and armour, shared between the world and the characters
+- Dunes displaced into the sand beyond the playable area
+- Sun shadows with a frustum that follows the player
+
+Three presets in settings: **LOW** generates no textures and disables shadows
+and the environment map, **MED** (default) uses 256px maps, **HIGH** uses 512px
+maps and soft shadows. Changing texture resolution takes effect on reload.
+
+Budget on MED: ~93 draw calls, ~15 000 triangles, 16 textures.
+
 ## Language
 
 Arabic is the **default**, with full RTL layout. Toggle **AR | EN** on the main
@@ -149,15 +169,24 @@ These are deliberate MVP boundaries, not bugs:
   squad tactics, no navmesh — they steer toward a point and slide along walls,
   which gets them around a building and through a doorway but will not solve a
   maze. They do not use cover deliberately and they never loot.
-- **Placeholder characters.** Saeed, the bots, OCTA and Mansour are built from
-  primitives at runtime to match the concept silhouette and palette. They are
-  designed to be swapped for real GLB models without touching gameplay —
-  see ARCHITECTURE.md.
+- **Not photorealistic, and cannot be from this repository alone.** The look is
+  stylised-realistic: real PBR shading, real image-based lighting, real surface
+  detail — but the characters and props are still built from primitives at
+  runtime, not scanned assets. True photorealism needs photoscanned models and
+  textures, which are megabytes of binary files; the build environment's network
+  policy blocks asset CDNs, and licensing them for a commercial product is a
+  decision for EVENTO rather than something to guess at. The pipeline they would
+  plug into is already PBR — see ARCHITECTURE.md, "Replacing this with real
+  scanned assets".
+- **Characters are procedural**, matching the concept silhouette and palette.
+  They are designed to be swapped for real GLB models without touching gameplay.
 - **Procedural animation**, not skeletal clips. The animation state machine is
   the real one; only the poses are faked.
 - **Synthesised audio** (WebAudio oscillators/noise). No music.
-- **No LOD and no texture atlas** — the map is small and untextured (flat
-  colours), so neither earns its complexity yet.
+- **No LOD and no texture atlas.** The map is small and the texture set is
+  seven materials, so neither earns its complexity yet.
+- **Texture generation costs a load hitch** of a few hundred milliseconds on
+  first entry (a second or two on a slow phone). Drop to LOW to skip it.
 - **Bots do not loot.** They spawn with a fixed weapon and unlimited reserve ammo.
 - **Bot difficulty is not verified against human play.** The headless balance
   harness (`npm run balance`) resolved several real bugs, but it could not

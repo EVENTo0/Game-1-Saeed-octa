@@ -333,10 +333,19 @@ async function main() {
     const g = globalThis.SAEED.game;
     g.player.health.value = 40;
     const before = g.player.health.value;
+    const kitsBefore = g.player.inventory.medkits;
     globalThis.SAEED.input.state.use = true;
-    await new Promise((r) => setTimeout(r, 2200));
-    return { before, after: g.player.health.value };
+    // Poll rather than sleeping a fixed time: dt is clamped to 100ms, so under
+    // software rendering the game clock runs slower than the wall clock and a
+    // fixed wait is not long enough for a 1.6s heal.
+    const deadline = performance.now() + 12000;
+    while (performance.now() < deadline && g.player.health.value <= before) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return { before, after: g.player.health.value, kitsBefore, kitsAfter: g.player.inventory.medkits };
   });
+  ok('med kit is consumed when used', healed.kitsAfter === healed.kitsBefore - 1,
+    `${healed.kitsBefore} → ${healed.kitsAfter}`);
   ok('med kit restores health', healed.after > healed.before, `${healed.before} → ${healed.after}`);
 
   // ---------- combat vs a bot ----------
