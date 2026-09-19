@@ -101,19 +101,33 @@ export class InputManager {
   }
   attachMouse(canvas) {
     const s = this.state;
+    let dragActive = false;
+    let lastX = 0, lastY = 0;
+
     const onMove = (e) => {
       if (!this.enabled) return;
-      if (document.pointerLockElement !== canvas) return;
-      s.lookDX += (e.movementX || 0) * 0.0022 * this.sensitivity;
-      s.lookDY += (e.movementY || 0) * 0.0022 * this.sensitivity;
+      if (document.pointerLockElement === canvas) {
+        s.lookDX += (e.movementX || 0) * 0.0022 * this.sensitivity;
+        s.lookDY += (e.movementY || 0) * 0.0022 * this.sensitivity;
+      } else if (dragActive) {
+        // Fallback drag-to-look when pointer lock is unavailable or pending
+        s.lookDX += (e.clientX - lastX) * 0.0022 * this.sensitivity;
+        s.lookDY += (e.clientY - lastY) * 0.0022 * this.sensitivity;
+        lastX = e.clientX;
+        lastY = e.clientY;
+      }
     };
     const onDown = (e) => {
       if (!this.enabled) return;
-      if (document.pointerLockElement !== canvas) { canvas.requestPointerLock?.(); return; }
+      dragActive = true;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      if (document.pointerLockElement !== canvas) canvas.requestPointerLock?.();
       if (e.button === 0) s.fire = true;
       if (e.button === 2) s.aim = true;
     };
     const onUp = (e) => {
+      dragActive = false;
       if (e.button === 0) s.fire = false;
       if (e.button === 2) s.aim = false;
     };

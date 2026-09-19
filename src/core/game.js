@@ -155,7 +155,7 @@ export class Game {
     this.mansourAnim = new ProceduralAnimator(this.mansour.rig);
     const ms = this.map.spawns.npcMansour;
     this.mansour.root.position.set(ms.x, 0, ms.z);
-    this.mansour.root.rotation.y = 2.2;
+    this.mansour.root.rotation.y = 2.2 + Math.PI;
     this.scene.add(this.mansour.root);
 
     this.botViews = [];
@@ -337,7 +337,7 @@ export class Game {
     const p = this.player;
     const root = this.playerView.root;
     root.position.set(p.pos.x, p.pos.y, p.pos.z);
-    root.rotation.y = p.yaw;
+    root.rotation.y = p.yaw + Math.PI;
     const w = p.inventory.weapon;
     const anim = this.playerAnim;
     if (!p.alive) anim.play(AnimState.DEATH);
@@ -356,7 +356,7 @@ export class Game {
       const bv = this.botViews[i];
       if (!bv) return;
       bv.view.root.position.set(bot.pos.x, bot.pos.y, bot.pos.z);
-      bv.view.root.rotation.y = bot.yaw;
+      bv.view.root.rotation.y = bot.yaw + Math.PI;
       const st = resolveState({
         alive: bot.alive, reloading: bot.weapon.reloading, firing: false,
         grounded: true, crouching: false,
