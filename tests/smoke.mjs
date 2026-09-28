@@ -171,6 +171,28 @@ async function main() {
   await sleep(200);
   const yaw1 = await page.evaluate(() => globalThis.SAEED.game.player.yaw);
   ok('drag on the right side turns the camera', Math.abs(yaw1 - yaw0) > 0.1, `Δyaw ${(yaw1 - yaw0).toFixed(3)}`);
+  ok('dragging left turns the view left (yaw increases)', yaw1 > yaw0);
+
+  // the model must face away from the chase camera (regression: it faced the lens)
+  const facing = await page.evaluate(() => {
+    const g = globalThis.SAEED.game;
+    const d = g.playerView.root.rotation.y - g.player.yaw;
+    return Math.abs(Math.cos(d) + 1);           // 0 when exactly half a turn off
+  });
+  ok('player model faces away from the camera', facing < 1e-3, `|cos+1| ${facing.toFixed(5)}`);
+
+  // dragging the thumb up looks up
+  const pitch0 = await page.evaluate(() => globalThis.SAEED.game.player.pitch);
+  await page.dispatchEvent('#hud', 'pointerdown', { pointerId: 4, clientX: lx, clientY: ly + 80, isPrimary: true, pointerType: 'touch', bubbles: true });
+  for (let i = 1; i <= 5; i++) {
+    await page.evaluate(([x, y]) => window.dispatchEvent(new PointerEvent('pointermove',
+      { pointerId: 4, clientX: x, clientY: y, bubbles: true })), [lx, ly + 80 - i * 12]);
+    await sleep(50);
+  }
+  await page.evaluate(() => window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 4, bubbles: true })));
+  await sleep(200);
+  const pitch1 = await page.evaluate(() => globalThis.SAEED.game.player.pitch);
+  ok('dragging the thumb up looks up', pitch1 > pitch0 + 0.05, `Δpitch ${(pitch1 - pitch0).toFixed(3)}`);
 
   // action buttons
   const tapBtn = async (action) => {
