@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "smoke": "node tests/smoke.mjs",
-    "balance": "node tests/balance.mjs"
+    "balance": "node tests/balance.mjs",
+    "preview:report": "node tests/preview.mjs && node tests/previewReport.mjs"
   },
   "repository": {
     "type": "git",
