@@ -72,7 +72,7 @@ export class Game {
   _initRenderer() {
     const q = QUALITY[this.quality] ?? QUALITY.med;
     this.renderer = new THREE.WebGLRenderer({
-      canvas: this.canvas, antialias: false, powerPreference: 'high-performance',
+      canvas: this.canvas, antialias: this.quality !== 'low', powerPreference: 'high-performance',
     });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, q.pixelRatio));
     this.renderer.setSize(window.innerWidth, window.innerHeight, false);

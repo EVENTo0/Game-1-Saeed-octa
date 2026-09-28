@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { getSharedTextures } from '../world/textures.js';
 
 /**
@@ -79,6 +80,16 @@ export function clearCharacterMaterials() {
 let CHAR_QUALITY = 'med';
 export function setCharacterQuality(q) { CHAR_QUALITY = q; }
 
+/**
+ * Bevelled box: the corner radius scales with the part, so limbs read as
+ * rounded forms and thin trim keeps a crisp edge. Hard 90-degree corners are
+ * what made the first-generation characters look like crates.
+ */
+function RB(w, h, d) {
+  const r = Math.min(0.045, Math.min(w, h, d) * 0.34);
+  return new RoundedBoxGeometry(w, h, d, 2, r);
+}
+
 function part(geo, material, x, y, z) {
   const m = new THREE.Mesh(geo, material);
   m.position.set(x, y, z);
@@ -117,40 +128,40 @@ export function buildHumanoid(opts = {}) {
 
   // Tapered torso: narrow waist under a broad chest reads as a person rather
   // than a crate, which is most of what a silhouette needs at phone size.
-  spine.add(part(new THREE.BoxGeometry(0.40, 0.24, 0.26), mCloth, 0, 0.14, 0));      // waist
-  const torso = part(new THREE.BoxGeometry(0.50, 0.40, 0.29), mArmor, 0, 0.42, 0);   // ribcage
+  spine.add(part(RB(0.40, 0.24, 0.26), mCloth, 0, 0.14, 0));      // waist
+  const torso = part(RB(0.50, 0.40, 0.29), mArmor, 0, 0.42, 0);   // ribcage
   spine.add(torso);
-  spine.add(part(new THREE.BoxGeometry(0.54, 0.16, 0.31), mArmor, 0, 0.58, 0));      // upper chest
+  spine.add(part(RB(0.54, 0.16, 0.31), mArmor, 0, 0.58, 0));      // upper chest
   // plate carrier, magazine pouches and gold trim
-  spine.add(part(new THREE.BoxGeometry(0.40, 0.30, 0.345), mAccent, 0, 0.47, 0.005));
-  spine.add(part(new THREE.BoxGeometry(0.42, 0.045, 0.35), mGold, 0, 0.31, 0.01));
+  spine.add(part(RB(0.40, 0.30, 0.345), mAccent, 0, 0.47, 0.005));
+  spine.add(part(RB(0.42, 0.045, 0.35), mGold, 0, 0.31, 0.01));
   for (let i = -1; i <= 1; i++) {
-    spine.add(part(new THREE.BoxGeometry(0.10, 0.12, 0.07), mRubber, i * 0.12, 0.30, 0.18));
+    spine.add(part(RB(0.10, 0.12, 0.07), mRubber, i * 0.12, 0.30, 0.18));
   }
   // belt
-  spine.add(part(new THREE.BoxGeometry(0.44, 0.07, 0.29), mRubber, 0, 0.05, 0));
+  spine.add(part(RB(0.44, 0.07, 0.29), mRubber, 0, 0.05, 0));
   // shoulder pads, angled outward
-  const padL = part(new THREE.BoxGeometry(0.17, 0.17, 0.27), mAccent, -0.33, 0.60, 0);
+  const padL = part(RB(0.17, 0.17, 0.27), mAccent, -0.33, 0.60, 0);
   padL.rotation.z = 0.18; spine.add(padL);
-  const padR = part(new THREE.BoxGeometry(0.17, 0.17, 0.27), mAccent, 0.33, 0.60, 0);
+  const padR = part(RB(0.17, 0.17, 0.27), mAccent, 0.33, 0.60, 0);
   padR.rotation.z = -0.18; spine.add(padR);
   // neck
   spine.add(part(new THREE.CylinderGeometry(0.075, 0.085, 0.10, 8), mSkin, 0, 0.70, 0));
 
   const head = new THREE.Group(); head.position.y = 0.78; spine.add(head);
-  head.add(part(new THREE.BoxGeometry(0.235, 0.27, 0.245), mSkin, 0, 0.02, 0));
-  head.add(part(new THREE.BoxGeometry(0.16, 0.09, 0.06), mSkin, 0, -0.05, 0.13));   // jaw/chin
+  head.add(part(RB(0.235, 0.27, 0.245), mSkin, 0, 0.02, 0));
+  head.add(part(RB(0.16, 0.09, 0.06), mSkin, 0, -0.05, 0.13));   // jaw/chin
   // shemagh wrapped over the crown and down the back of the neck
-  head.add(part(new THREE.BoxGeometry(0.30, 0.15, 0.30), mCloth, 0, 0.16, 0));
-  head.add(part(new THREE.BoxGeometry(0.28, 0.24, 0.10), mCloth, 0, -0.03, -0.135));
-  const drape = part(new THREE.BoxGeometry(0.30, 0.18, 0.05), mCloth, 0, -0.14, -0.10);
+  head.add(part(RB(0.30, 0.15, 0.30), mCloth, 0, 0.16, 0));
+  head.add(part(RB(0.28, 0.24, 0.10), mCloth, 0, -0.03, -0.135));
+  const drape = part(RB(0.30, 0.18, 0.05), mCloth, 0, -0.14, -0.10);
   drape.rotation.x = -0.35; head.add(drape);
   // octopus goggles: visor band + two round lenses + tiny tentacle nubs
-  head.add(part(new THREE.BoxGeometry(0.275, 0.085, 0.055), mRubber, 0, 0.045, 0.125));
+  head.add(part(RB(0.275, 0.085, 0.055), mRubber, 0, 0.045, 0.125));
   const lens = new THREE.SphereGeometry(0.052, 10, 8);
   head.add(part(lens, mVisor, -0.068, 0.048, 0.15));
   head.add(part(lens, mVisor, 0.068, 0.048, 0.15));
-  head.add(part(new THREE.BoxGeometry(0.30, 0.05, 0.26), mRubber, 0, 0.055, -0.01));  // strap
+  head.add(part(RB(0.30, 0.05, 0.26), mRubber, 0, 0.055, -0.01));  // strap
   if (opts.emblem !== false) {
     const nub = new THREE.SphereGeometry(0.022, 6, 4);
     for (let i = 0; i < 4; i++) {
@@ -165,10 +176,10 @@ export function buildHumanoid(opts = {}) {
   const buildArm = (side) => {
     const g = new THREE.Group();
     g.position.set(side * 0.345, 0.60, 0);
-    g.add(part(new THREE.BoxGeometry(0.135, 0.26, 0.135), mArmor, 0, -0.13, 0));
-    g.add(part(new THREE.BoxGeometry(0.115, 0.24, 0.115), mCloth, 0, -0.37, 0));
-    g.add(part(new THREE.BoxGeometry(0.125, 0.06, 0.125), mGold, 0, -0.505, 0));   // cuff
-    g.add(part(new THREE.BoxGeometry(0.115, 0.10, 0.13), mRubber, 0, -0.565, 0.01)); // glove
+    g.add(part(RB(0.135, 0.26, 0.135), mArmor, 0, -0.13, 0));
+    g.add(part(RB(0.115, 0.24, 0.115), mCloth, 0, -0.37, 0));
+    g.add(part(RB(0.125, 0.06, 0.125), mGold, 0, -0.505, 0));   // cuff
+    g.add(part(RB(0.115, 0.10, 0.13), mRubber, 0, -0.565, 0.01)); // glove
     spine.add(g);
     return g;
   };
@@ -179,10 +190,10 @@ export function buildHumanoid(opts = {}) {
   const buildLeg = (side) => {
     const g = new THREE.Group();
     g.position.set(side * 0.135, 0, 0);
-    g.add(part(new THREE.BoxGeometry(0.175, 0.30, 0.185), mCloth, 0, -0.16, 0));
-    g.add(part(new THREE.BoxGeometry(0.145, 0.26, 0.16), mCloth, 0, -0.44, 0));
-    g.add(part(new THREE.BoxGeometry(0.165, 0.09, 0.17), mArmor, 0, -0.30, 0.02));  // knee pad
-    g.add(part(new THREE.BoxGeometry(0.175, 0.11, 0.26), mRubber, 0, -0.615, 0.035)); // boot
+    g.add(part(RB(0.175, 0.30, 0.185), mCloth, 0, -0.16, 0));
+    g.add(part(RB(0.145, 0.26, 0.16), mCloth, 0, -0.44, 0));
+    g.add(part(RB(0.165, 0.09, 0.17), mArmor, 0, -0.30, 0.02));  // knee pad
+    g.add(part(RB(0.175, 0.11, 0.26), mRubber, 0, -0.615, 0.035)); // boot
     hips.add(g);
     return g;
   };

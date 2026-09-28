@@ -562,7 +562,12 @@ async function main() {
 
   const dBefore = await dpage.evaluate(() => ({ ...globalThis.SAEED.game.player.pos }));
   await dpage.keyboard.down('KeyW');
-  await sleep(900);
+  // Poll instead of sleeping: dt is clamped, so software rendering slows the
+  // game clock below wall-clock time and a fixed wait moves the player too little.
+  await dpage.waitForFunction(([x, z]) => {
+    const p = globalThis.SAEED.game.player.pos;
+    return Math.hypot(p.x - x, p.z - z) > 2.5;
+  }, [dBefore.x, dBefore.z], { timeout: 10000 }).catch(() => {});
   await dpage.keyboard.up('KeyW');
   const dAfter = await dpage.evaluate(() => ({ ...globalThis.SAEED.game.player.pos }));
   ok('desktop WASD moves the player',
