@@ -1,0 +1,129 @@
+{
+  "schema_version": "1.0",
+  "identity": {
+    "project_id": "saeed-royale",
+    "name": "SAEED ROYALE",
+    "canonical_repository": "EVENTo0/Game-1-Saeed-octa",
+    "canonical_ref": "80da36e95274d372b1c7ddebf5d0d0717f298110",
+    "owner": "EVENTO"
+  },
+  "classification": {
+    "role": "SELLABLE_CANDIDATE",
+    "product_type": "GAME_PACKAGE",
+    "category": "mobile-first web game / customizable game package",
+    "commercial_model": "Customize → Deploy → Handoff",
+    "duplicate_merge_decision": "Canonical candidate; EVENTo0/saeed-game must be migrated/archived before sale."
+  },
+  "product": {
+    "target_segment": [
+      "brands",
+      "events",
+      "campaigns",
+      "private game deployments"
+    ],
+    "value_proposition": "Arabic-first mobile browser survival/action game that can be branded and deployed without an app-store dependency.",
+    "repeatable_core": [
+      "Three.js/Vite runtime",
+      "touch controls",
+      "AI opponents",
+      "safe-zone match loop",
+      "static deployment"
+    ],
+    "configurable_options": [
+      "branding",
+      "characters",
+      "map art",
+      "copy",
+      "difficulty",
+      "hosting"
+    ],
+    "private_exclusions": [
+      "EVENTO control-plane code",
+      "unrelated OCTA/AAA engineering assets"
+    ],
+    "demo_dataset": "No customer data required."
+  },
+  "deployment": {
+    "mode": "static web deployment",
+    "hosting": [
+      "Vercel",
+      "customer static host"
+    ],
+    "domain_plan": "Customer-owned domain or subdomain.",
+    "release_path": "npm build → smoke/unit verification → preview → customer production host.",
+    "rollback_path": "Redeploy previous static artifact/source revision."
+  },
+  "customer_ownership": {
+    "isolated": true,
+    "customer_owns_domain": true,
+    "customer_owns_data": true,
+    "customer_owns_secrets": true,
+    "customer_admin": true,
+    "evento_private_dependencies": []
+  },
+  "support_boundary": {
+    "default_delivery_model": "Build → Customize → Deploy → Handoff → Customer Owns & Operates",
+    "allowed_post_sale": [
+      "Add-ons",
+      "Plugins",
+      "Upgrades",
+      "Integrations",
+      "Technical Support",
+      "Design",
+      "Marketing"
+    ],
+    "daily_business_management": false,
+    "warranty_days": 14,
+    "handover_support_days": 7
+  },
+  "readiness": {
+    "score": 82,
+    "p0": [
+      "Unresolved duplicate source: EVENTo0/saeed-game remains a competing Saeed game repository and has not been formally migrated/archived."
+    ],
+    "p1": [
+      "Current README claims 87 unit tests and 64 browser checks but release evidence is not linked to a current CI run in this audit.",
+      "Commercial license register/SKU/sales handoff pack is missing.",
+      "Customer branding/config boundary is not documented as a reusable template."
+    ],
+    "lifecycle_state": "BLOCKED_P0",
+    "gates": {
+      "audit": "PASS",
+      "classification": "PASS",
+      "duplicate_merge": "FAIL",
+      "tests": "PARTIAL_EVIDENCE",
+      "security": "UNVERIFIED",
+      "deployment": "PASS_DEMO",
+      "productization": "IN_PROGRESS",
+      "customer_isolation": "PASS_STATIC",
+      "handoff": "BLOCKED",
+      "commercial": "BLOCKED",
+      "catalog": "BLOCKED"
+    }
+  },
+  "evidence": [
+    {
+      "kind": "commit",
+      "ref": "80da36e95274d372b1c7ddebf5d0d0717f298110",
+      "status": "PASS",
+      "note": "Current audited repository head."
+    },
+    {
+      "kind": "deployment",
+      "ref": "https://saeed-royale.vercel.app",
+      "status": "PASS",
+      "note": "Live demo documented by the current repository README."
+    },
+    {
+      "kind": "repository_doc",
+      "ref": "README.md@80da36e95274d372b1c7ddebf5d0d0717f298110",
+      "status": "PASS",
+      "note": "Documents static deployment and reported test commands/counts."
+    }
+  ],
+  "decision": {
+    "sellable": false,
+    "reason": "Technically close, but Merge Before Build blocks sale until the duplicate Saeed repository is resolved and commercial handoff evidence is packaged.",
+    "next_action": "Make Game-1-Saeed-octa the sole canonical source by migrating any unique saeed-game assets and marking the legacy repository read-only/archive-ready."
+  }
+}
