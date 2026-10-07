@@ -4,7 +4,7 @@
     "project_id": "saeed-royale",
     "name": "SAEED ROYALE",
     "canonical_repository": "EVENTo0/Game-1-Saeed-octa",
-    "canonical_ref": "5c2a4ab0d4e1132e1a1e55ac57a005a34f5d518b",
+    "canonical_ref": "375758082cdab96d91332554e5f5befbe5cd3a05",
     "owner": "EVENTO"
   },
   "classification": {
@@ -77,25 +77,23 @@
     "handover_support_days": 7
   },
   "readiness": {
-    "score": 92,
-    "p0": [
-      "Final sellable verification run 8 failed the browser/mobile smoke because the AI return-fire assertion depended on random accuracy; deterministic smoke fix is now under verification."
-    ],
+    "score": 96,
+    "p0": [],
     "p1": [],
-    "lifecycle_state": "FIXING",
+    "lifecycle_state": "SELLABLE",
     "gates": {
       "audit": "PASS",
       "classification": "PASS",
       "duplicate_merge": "PASS",
-      "tests": "IN_PROGRESS_AFTER_FLAKE_FIX",
-      "security": "PASS_PRIOR_CURRENT_RUNTIME",
+      "tests": "PASS_CURRENT",
+      "security": "PASS_CURRENT",
       "deployment": "PASS_PREVIEW_AND_STATIC_RELEASE_PATH",
       "productization": "PASS",
       "customer_isolation": "PASS_STATIC",
       "handoff": "PASS",
       "commercial": "PASS",
       "licensing": "PASS",
-      "catalog": "BLOCKED_P0"
+      "catalog": "PASS_READY_TO_LIST"
     }
   },
   "evidence": [
@@ -158,11 +156,17 @@
       "ref": "SAEED ROYALE Sellable Verification run 8 / 37627379180",
       "status": "FAIL",
       "note": "66/67 browser smoke; only AI return-fire check failed due to random accuracy (bot engaged, zero accurate hits). Runtime unit/build passed. Test made deterministic without changing gameplay."
+    },
+    {
+      "kind": "ci",
+      "ref": "SAEED ROYALE Sellable Verification run 10 / 37628207185",
+      "status": "PASS",
+      "note": "Deterministic final verification passed: unit tests, production build, Chromium mobile/browser smoke, production dependency audit, commercial asset/license boundary, and commercial/handoff package verifier."
     }
   ],
   "decision": {
-    "sellable": false,
-    "reason": "The product remains technically/commercially complete, but a mandatory final gate failed due to a nondeterministic AI smoke assertion. Evidence Before Claim requires re-verification after the deterministic test fix.",
-    "next_action": "Require SAEED ROYALE Sellable Verification to PASS on the deterministic AI return-fire smoke fix, then restore SELLABLE and merge PR #1."
+    "sellable": true,
+    "reason": "P0=0 and P1=0. The deterministic final gate is green and all mandatory technical, security, deployment, licensing, productization, handoff and commercial requirements are evidenced.",
+    "next_action": "Merge PR #1 into the canonical SAEED ROYALE branch, verify the resulting hosted deployment, then publish SKU SAEED-ROYALE-WEB-V1 to the EVENTO Ready-to-Sell catalog."
   }
 }
