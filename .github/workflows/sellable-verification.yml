@@ -1,0 +1,40 @@
+name: SAEED ROYALE Sellable Verification
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Unit tests
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Browser / mobile smoke
+        run: npm run smoke
+      - name: Production dependency audit
+        run: npm audit --omit=dev --audit-level=high
+      - name: Verify commercial asset boundary
+        shell: bash
+        run: |
+          test -f LICENSES.md
+          grep -q "There are no external asset files in this project" LICENSES.md
+          grep -q "three.js" LICENSES.md
+          grep -q "Original" LICENSES.md
