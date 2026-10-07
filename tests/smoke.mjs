@@ -413,6 +413,13 @@ async function main() {
     const bot = g.bots.find((b) => b.alive);
     g.player.health.value = 100;
     g.player.pos.x = bot.pos.x; g.player.pos.z = bot.pos.z + 8; g.player.pos.y = bot.pos.y;
+    // This check verifies the real AI fire/damage path, not RNG luck. End spawn
+    // protection explicitly and make this bot's accuracy roll deterministic only
+    // for the duration of the smoke assertion. Runtime gameplay remains unchanged.
+    g.matchTime = Math.max(g.matchTime, 4);
+    const originalRng = bot.rng;
+    bot.rng = () => 0;
+    bot.fireTimer = 0;
     let hits = 0;
     const original = g._botShoot.bind(g);
     g._botShoot = (b, accurate, d) => { if (accurate) hits++; return original(b, accurate, d); };
@@ -424,6 +431,7 @@ async function main() {
     }
     const hp = g.player.health.value;
     g._botShoot = original;
+    bot.rng = originalRng;
     g.player.health.value = g.player.health.max;
     return { hp, hits, botState: bot.state, state: g.state };
   });
