@@ -1,0 +1,94 @@
+{
+  "schema_version": "1.0",
+  "sku": "SAEED-ROYALE-WEB-V1",
+  "product": "SAEED ROYALE",
+  "category": "GAME_PACKAGE",
+  "price": {
+    "mode": "CUSTOM_QUOTE",
+    "currency": "AED",
+    "recurring_evento_operations_fee": false,
+    "third_party_vendor_costs": "CUSTOMER_DIRECT_UNLESS_QUOTED"
+  },
+  "delivery_model": "Build → Customize → Deploy → Handoff → Customer Owns & Operates",
+  "included": [
+    "one branded/customer-specific web game deployment",
+    "Arabic RTL + English UI",
+    "mobile/touch + desktop controls",
+    "static production build",
+    "bounded branding/content customization",
+    "customer-owned domain/static host target",
+    "deployment and rollback instructions",
+    "acceptance test against the reviewed build",
+    "14-day defect warranty",
+    "7-day handover support"
+  ],
+  "excluded": [
+    "native iOS/Android store packaging unless separately quoted",
+    "multiplayer/backend/accounts",
+    "third-party copyrighted game assets",
+    "guaranteed engagement or campaign performance",
+    "customer daily campaign/game operations by EVENTO",
+    "EVENTO control-plane assets or unrelated repositories",
+    "hosting/domain/ad-spend/vendor fees unless quoted"
+  ],
+  "post_sale_allowed": [
+    "Add-ons",
+    "Plugins",
+    "Upgrades",
+    "Integrations",
+    "Technical Support",
+    "Design",
+    "Marketing"
+  ],
+  "ownership": {
+    "customer_controls": [
+      "domain/hosting account",
+      "customer-specific brand assets",
+      "customer business/campaign content",
+      "daily operation"
+    ],
+    "evento_retains_by_default": [
+      "generic SAEED ROYALE engine/framework",
+      "generic gameplay systems",
+      "reusable engineering methods",
+      "unrelated EVENTO systems"
+    ],
+    "source_or_ip_assignment": "ONLY_IF_EXPLICITLY_CONTRACTED",
+    "customer_can_operate_independently": true
+  },
+  "customization_boundary": {
+    "safe_default": [
+      "brand/title treatment",
+      "original customer logo/assets",
+      "approved copy",
+      "color/theme treatment",
+      "difficulty/rule tuning within existing systems",
+      "deployment/domain settings"
+    ],
+    "requires_new_scope": [
+      "new gameplay systems",
+      "new maps/world systems",
+      "multiplayer",
+      "backend/accounts",
+      "native app packaging",
+      "licensed third-party art/audio"
+    ],
+    "forbidden": [
+      "copying protected third-party game expression/assets",
+      "removing license notices",
+      "shipping unverified assets"
+    ]
+  },
+  "sale_gate": {
+    "p0_zero_required": true,
+    "current_ci_required": true,
+    "production_dependency_audit_required": true,
+    "browser_mobile_smoke_required": true,
+    "license_boundary_required": true
+  },
+  "catalog": {
+    "ar_title": "سعيد رويال — لعبة ويب عربية قابلة للتخصيص والتسليم",
+    "en_title": "SAEED ROYALE — Customizable Arabic-First Web Game",
+    "delivery": "customer-owned static web deployment"
+  }
+}

@@ -1,0 +1,172 @@
+{
+  "schema_version": "1.0",
+  "identity": {
+    "project_id": "saeed-royale",
+    "name": "SAEED ROYALE",
+    "canonical_repository": "EVENTo0/Game-1-Saeed-octa",
+    "canonical_ref": "375758082cdab96d91332554e5f5befbe5cd3a05",
+    "owner": "EVENTO"
+  },
+  "classification": {
+    "role": "SELLABLE_CANDIDATE",
+    "product_type": "GAME_PACKAGE",
+    "category": "mobile-first web game / customizable game package",
+    "commercial_model": "Customize → Deploy → Handoff",
+    "duplicate_merge_decision": "Canonical source fixed: EVENTo0/Game-1-Saeed-octa. EVENTo0/saeed-game is legacy archive only; legacy PR #1 closed and no historical material deleted."
+  },
+  "product": {
+    "target_segment": [
+      "brands",
+      "events",
+      "campaigns",
+      "private game deployments"
+    ],
+    "value_proposition": "Arabic-first mobile browser survival/action game that can be branded and deployed without an app-store dependency.",
+    "repeatable_core": [
+      "Three.js/Vite runtime",
+      "touch controls",
+      "AI opponents",
+      "safe-zone match loop",
+      "static deployment"
+    ],
+    "configurable_options": [
+      "branding",
+      "characters",
+      "map art",
+      "copy",
+      "difficulty",
+      "hosting"
+    ],
+    "private_exclusions": [
+      "EVENTO control-plane code",
+      "unrelated OCTA/AAA engineering assets"
+    ],
+    "demo_dataset": "No customer data required."
+  },
+  "deployment": {
+    "mode": "static web deployment",
+    "hosting": [
+      "Vercel",
+      "customer static host"
+    ],
+    "domain_plan": "Customer-owned domain or subdomain.",
+    "release_path": "npm build → smoke/unit verification → preview → customer production host.",
+    "rollback_path": "Redeploy previous static artifact/source revision."
+  },
+  "customer_ownership": {
+    "isolated": true,
+    "customer_owns_domain": true,
+    "customer_owns_data": true,
+    "customer_owns_secrets": true,
+    "customer_admin": true,
+    "evento_private_dependencies": []
+  },
+  "support_boundary": {
+    "default_delivery_model": "Build → Customize → Deploy → Handoff → Customer Owns & Operates",
+    "allowed_post_sale": [
+      "Add-ons",
+      "Plugins",
+      "Upgrades",
+      "Integrations",
+      "Technical Support",
+      "Design",
+      "Marketing"
+    ],
+    "daily_business_management": false,
+    "warranty_days": 14,
+    "handover_support_days": 7
+  },
+  "readiness": {
+    "score": 96,
+    "p0": [],
+    "p1": [],
+    "lifecycle_state": "SELLABLE",
+    "gates": {
+      "audit": "PASS",
+      "classification": "PASS",
+      "duplicate_merge": "PASS",
+      "tests": "PASS_CURRENT",
+      "security": "PASS_CURRENT",
+      "deployment": "PASS_PREVIEW_AND_STATIC_RELEASE_PATH",
+      "productization": "PASS",
+      "customer_isolation": "PASS_STATIC",
+      "handoff": "PASS",
+      "commercial": "PASS",
+      "licensing": "PASS",
+      "catalog": "PASS_READY_TO_LIST"
+    }
+  },
+  "evidence": [
+    {
+      "kind": "commit",
+      "ref": "80da36e95274d372b1c7ddebf5d0d0717f298110",
+      "status": "PASS",
+      "note": "Current audited repository head."
+    },
+    {
+      "kind": "deployment",
+      "ref": "https://saeed-royale.vercel.app",
+      "status": "PASS",
+      "note": "Live demo documented by the current repository README."
+    },
+    {
+      "kind": "repository_doc",
+      "ref": "README.md@80da36e95274d372b1c7ddebf5d0d0717f298110",
+      "status": "PASS",
+      "note": "Documents static deployment and reported test commands/counts."
+    },
+    {
+      "kind": "duplicate_merge",
+      "ref": "EVENTo0/saeed-game@5848d2a948695e0ac2b8a001360da0002210a80e + legacy PR #1 closed",
+      "status": "PASS",
+      "note": "Legacy repository explicitly marked archive-only; Game-1-Saeed-octa is the sole canonical commercial source. Historical ZIP/material remains preserved."
+    },
+    {
+      "kind": "ci_gate",
+      "ref": ".github/workflows/sellable-verification.yml on productization/evento-package-v1",
+      "status": "IN_PROGRESS",
+      "note": "Re-runs unit, production build, Playwright mobile/browser smoke, production dependency audit, and license-boundary checks."
+    },
+    {
+      "kind": "ci",
+      "ref": "SAEED ROYALE Sellable Verification run 2 / 37625553154",
+      "status": "PASS",
+      "note": "Unit tests, production build, Chromium mobile/browser smoke, production dependency audit, and commercial asset/license boundary all passed on the current game runtime."
+    },
+    {
+      "kind": "deployment",
+      "ref": "Vercel deployment dpl_GvF44uWRt4TbKiMWWfNiKnhGTiZm @ 88d10a1f2426fe2dd365704bcd9904533431a20c",
+      "status": "PASS",
+      "note": "Current productization branch preview is READY on the saeed-royale Vercel project."
+    },
+    {
+      "kind": "ci",
+      "ref": "SAEED ROYALE Sellable Verification run 7 / 37626025708",
+      "status": "PASS",
+      "note": "Final combined gate passed: install, unit tests, production build, Chromium mobile/browser smoke, production dependency audit, commercial asset/license boundary, and commercial/handoff package verifier."
+    },
+    {
+      "kind": "commercial_package",
+      "ref": "SAEED-ROYALE-WEB-V1",
+      "status": "PASS",
+      "note": "CUSTOM_QUOTE AED SKU, customer ownership boundary, customization matrix, exclusions, handoff/rollback checklist and catalog copy are verified."
+    },
+    {
+      "kind": "ci",
+      "ref": "SAEED ROYALE Sellable Verification run 8 / 37627379180",
+      "status": "FAIL",
+      "note": "66/67 browser smoke; only AI return-fire check failed due to random accuracy (bot engaged, zero accurate hits). Runtime unit/build passed. Test made deterministic without changing gameplay."
+    },
+    {
+      "kind": "ci",
+      "ref": "SAEED ROYALE Sellable Verification run 10 / 37628207185",
+      "status": "PASS",
+      "note": "Deterministic final verification passed: unit tests, production build, Chromium mobile/browser smoke, production dependency audit, commercial asset/license boundary, and commercial/handoff package verifier."
+    }
+  ],
+  "decision": {
+    "sellable": true,
+    "reason": "P0=0 and P1=0. The deterministic final gate is green and all mandatory technical, security, deployment, licensing, productization, handoff and commercial requirements are evidenced.",
+    "next_action": "Merge PR #1 into the canonical SAEED ROYALE branch, verify the resulting hosted deployment, then publish SKU SAEED-ROYALE-WEB-V1 to the EVENTO Ready-to-Sell catalog."
+  }
+}
