@@ -12,7 +12,7 @@
     "product_type": "GAME_PACKAGE",
     "category": "mobile-first web game / customizable game package",
     "commercial_model": "Customize → Deploy → Handoff",
-    "duplicate_merge_decision": "Canonical candidate; EVENTo0/saeed-game must be migrated/archived before sale."
+    "duplicate_merge_decision": "Canonical source fixed: EVENTo0/Game-1-Saeed-octa. EVENTo0/saeed-game is legacy archive only; legacy PR #1 closed and no historical material deleted."
   },
   "product": {
     "target_segment": [
@@ -77,22 +77,20 @@
     "handover_support_days": 7
   },
   "readiness": {
-    "score": 82,
-    "p0": [
-      "Unresolved duplicate source: EVENTo0/saeed-game remains a competing Saeed game repository and has not been formally migrated/archived."
-    ],
+    "score": 85,
+    "p0": [],
     "p1": [
-      "Current README claims 87 unit tests and 64 browser checks but release evidence is not linked to a current CI run in this audit.",
-      "Commercial license register/SKU/sales handoff pack is missing.",
-      "Customer branding/config boundary is not documented as a reusable template."
+      "Current sellable verification CI has been added but its new run must pass before current test/security evidence can replace the historical test report.",
+      "Commercial license/SKU/sales handoff pack is not yet packaged.",
+      "Customer branding/config boundary is not yet documented as a reusable delivery template."
     ],
-    "lifecycle_state": "BLOCKED_P0",
+    "lifecycle_state": "FIXING",
     "gates": {
       "audit": "PASS",
       "classification": "PASS",
-      "duplicate_merge": "FAIL",
-      "tests": "PARTIAL_EVIDENCE",
-      "security": "UNVERIFIED",
+      "duplicate_merge": "PASS",
+      "tests": "IN_PROGRESS_CURRENT_CI",
+      "security": "IN_PROGRESS_CURRENT_CI",
       "deployment": "PASS_DEMO",
       "productization": "IN_PROGRESS",
       "customer_isolation": "PASS_STATIC",
@@ -119,11 +117,23 @@
       "ref": "README.md@80da36e95274d372b1c7ddebf5d0d0717f298110",
       "status": "PASS",
       "note": "Documents static deployment and reported test commands/counts."
+    },
+    {
+      "kind": "duplicate_merge",
+      "ref": "EVENTo0/saeed-game@5848d2a948695e0ac2b8a001360da0002210a80e + legacy PR #1 closed",
+      "status": "PASS",
+      "note": "Legacy repository explicitly marked archive-only; Game-1-Saeed-octa is the sole canonical commercial source. Historical ZIP/material remains preserved."
+    },
+    {
+      "kind": "ci_gate",
+      "ref": ".github/workflows/sellable-verification.yml on productization/evento-package-v1",
+      "status": "IN_PROGRESS",
+      "note": "Re-runs unit, production build, Playwright mobile/browser smoke, production dependency audit, and license-boundary checks."
     }
   ],
   "decision": {
     "sellable": false,
-    "reason": "Technically close, but Merge Before Build blocks sale until the duplicate Saeed repository is resolved and commercial handoff evidence is packaged.",
-    "next_action": "Make Game-1-Saeed-octa the sole canonical source by migrating any unique saeed-game assets and marking the legacy repository read-only/archive-ready."
+    "reason": "Duplicate-source P0 is closed. Current CI/security evidence and commercial/handoff packaging remain mandatory before SELLABLE.",
+    "next_action": "Run the new SAEED ROYALE Sellable Verification gate and require unit + build + mobile/browser smoke + production dependency audit + license boundary to PASS."
   }
 }
