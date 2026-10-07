@@ -38,3 +38,5 @@ jobs:
           grep -q "There are no external asset files in this project" LICENSES.md
           grep -q "three.js" LICENSES.md
           grep -q "Original" LICENSES.md
+      - name: Verify commercial and handoff package
+        run: node scripts/verify-commercial-package.mjs
