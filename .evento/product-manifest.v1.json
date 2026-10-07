@@ -4,7 +4,7 @@
     "project_id": "saeed-royale",
     "name": "SAEED ROYALE",
     "canonical_repository": "EVENTo0/Game-1-Saeed-octa",
-    "canonical_ref": "80da36e95274d372b1c7ddebf5d0d0717f298110",
+    "canonical_ref": "88d10a1f2426fe2dd365704bcd9904533431a20c",
     "owner": "EVENTO"
   },
   "classification": {
@@ -77,26 +77,24 @@
     "handover_support_days": 7
   },
   "readiness": {
-    "score": 85,
+    "score": 90,
     "p0": [],
     "p1": [
-      "Current sellable verification CI has been added but its new run must pass before current test/security evidence can replace the historical test report.",
-      "Commercial license/SKU/sales handoff pack is not yet packaged.",
-      "Customer branding/config boundary is not yet documented as a reusable delivery template."
+      "The new commercial/handoff package exists and the runtime verification is current-green, but the latest combined CI run must finish with the commercial/handoff verifier PASS before SELLABLE."
     ],
-    "lifecycle_state": "FIXING",
+    "lifecycle_state": "PRODUCTIZED",
     "gates": {
       "audit": "PASS",
       "classification": "PASS",
       "duplicate_merge": "PASS",
-      "tests": "IN_PROGRESS_CURRENT_CI",
-      "security": "IN_PROGRESS_CURRENT_CI",
-      "deployment": "PASS_DEMO",
-      "productization": "IN_PROGRESS",
+      "tests": "PASS_CURRENT",
+      "security": "PASS_CURRENT",
+      "deployment": "PASS_PREVIEW",
+      "productization": "PASS",
       "customer_isolation": "PASS_STATIC",
-      "handoff": "BLOCKED",
-      "commercial": "BLOCKED",
-      "catalog": "BLOCKED"
+      "handoff": "IN_PROGRESS_VERIFIER",
+      "commercial": "IN_PROGRESS_VERIFIER",
+      "catalog": "IN_PROGRESS"
     }
   },
   "evidence": [
@@ -129,11 +127,29 @@
       "ref": ".github/workflows/sellable-verification.yml on productization/evento-package-v1",
       "status": "IN_PROGRESS",
       "note": "Re-runs unit, production build, Playwright mobile/browser smoke, production dependency audit, and license-boundary checks."
+    },
+    {
+      "kind": "ci",
+      "ref": "SAEED ROYALE Sellable Verification run 2 / 37625553154",
+      "status": "PASS",
+      "note": "Unit tests, production build, Chromium mobile/browser smoke, production dependency audit, and commercial asset/license boundary all passed on the current game runtime."
+    },
+    {
+      "kind": "deployment",
+      "ref": "Vercel deployment dpl_GvF44uWRt4TbKiMWWfNiKnhGTiZm @ 88d10a1f2426fe2dd365704bcd9904533431a20c",
+      "status": "PASS",
+      "note": "Current productization branch preview is READY on the saeed-royale Vercel project."
+    },
+    {
+      "kind": "commercial_package",
+      "ref": "SAEED-ROYALE-WEB-V1 + docs/commercial/SAEED_COMMERCIAL_PACKAGE_V1.md + docs/customer/SAEED_CUSTOMER_HANDOFF_V1.md",
+      "status": "IN_PROGRESS",
+      "note": "Commercial SKU, ownership boundary, customization matrix and handoff checklist are present; final verifier is running on the latest head."
     }
   ],
   "decision": {
     "sellable": false,
-    "reason": "Duplicate-source P0 is closed. Current CI/security evidence and commercial/handoff packaging remain mandatory before SELLABLE.",
-    "next_action": "Run the new SAEED ROYALE Sellable Verification gate and require unit + build + mobile/browser smoke + production dependency audit + license boundary to PASS."
+    "reason": "P0 is zero and current runtime/security/deployment evidence is green. Final commercial/handoff verifier on the latest head is still required before SELLABLE.",
+    "next_action": "Require the latest SAEED ROYALE Sellable Verification run to PASS the commercial/handoff package verifier, then promote the manifest to SELLABLE and merge the productization PR."
   }
 }
