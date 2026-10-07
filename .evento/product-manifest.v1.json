@@ -4,7 +4,7 @@
     "project_id": "saeed-royale",
     "name": "SAEED ROYALE",
     "canonical_repository": "EVENTo0/Game-1-Saeed-octa",
-    "canonical_ref": "88d10a1f2426fe2dd365704bcd9904533431a20c",
+    "canonical_ref": "acfd9fcd127c5b02e1101d8372a7816063c2b02e",
     "owner": "EVENTO"
   },
   "classification": {
@@ -77,24 +77,23 @@
     "handover_support_days": 7
   },
   "readiness": {
-    "score": 90,
+    "score": 96,
     "p0": [],
-    "p1": [
-      "The new commercial/handoff package exists and the runtime verification is current-green, but the latest combined CI run must finish with the commercial/handoff verifier PASS before SELLABLE."
-    ],
-    "lifecycle_state": "PRODUCTIZED",
+    "p1": [],
+    "lifecycle_state": "SELLABLE",
     "gates": {
       "audit": "PASS",
       "classification": "PASS",
       "duplicate_merge": "PASS",
       "tests": "PASS_CURRENT",
       "security": "PASS_CURRENT",
-      "deployment": "PASS_PREVIEW",
+      "deployment": "PASS_PREVIEW_AND_STATIC_RELEASE_PATH",
       "productization": "PASS",
       "customer_isolation": "PASS_STATIC",
-      "handoff": "IN_PROGRESS_VERIFIER",
-      "commercial": "IN_PROGRESS_VERIFIER",
-      "catalog": "IN_PROGRESS"
+      "handoff": "PASS",
+      "commercial": "PASS",
+      "licensing": "PASS",
+      "catalog": "PASS_READY_TO_LIST"
     }
   },
   "evidence": [
@@ -141,15 +140,21 @@
       "note": "Current productization branch preview is READY on the saeed-royale Vercel project."
     },
     {
+      "kind": "ci",
+      "ref": "SAEED ROYALE Sellable Verification run 7 / 37626025708",
+      "status": "PASS",
+      "note": "Final combined gate passed: install, unit tests, production build, Chromium mobile/browser smoke, production dependency audit, commercial asset/license boundary, and commercial/handoff package verifier."
+    },
+    {
       "kind": "commercial_package",
-      "ref": "SAEED-ROYALE-WEB-V1 + docs/commercial/SAEED_COMMERCIAL_PACKAGE_V1.md + docs/customer/SAEED_CUSTOMER_HANDOFF_V1.md",
-      "status": "IN_PROGRESS",
-      "note": "Commercial SKU, ownership boundary, customization matrix and handoff checklist are present; final verifier is running on the latest head."
+      "ref": "SAEED-ROYALE-WEB-V1",
+      "status": "PASS",
+      "note": "CUSTOM_QUOTE AED SKU, customer ownership boundary, customization matrix, exclusions, handoff/rollback checklist and catalog copy are verified."
     }
   ],
   "decision": {
-    "sellable": false,
-    "reason": "P0 is zero and current runtime/security/deployment evidence is green. Final commercial/handoff verifier on the latest head is still required before SELLABLE.",
-    "next_action": "Require the latest SAEED ROYALE Sellable Verification run to PASS the commercial/handoff package verifier, then promote the manifest to SELLABLE and merge the productization PR."
+    "sellable": true,
+    "reason": "P0=0 and P1=0. Current technical, security, deployment, licensing, productization, handoff and commercial gates are evidenced and green. SAEED ROYALE is ready to list as an EVENTO sellable package.",
+    "next_action": "Merge the verified productization PR into the canonical SAEED ROYALE branch and list SKU SAEED-ROYALE-WEB-V1 in the EVENTO catalog as SELLABLE."
   }
 }
