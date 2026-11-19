@@ -8,7 +8,7 @@ const passed = m.checks.filter((c) => c.pass).length;
 const allOk = passed === m.checks.length;
 const when = new Date(m.generatedAt).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
 
-const html = `<title>SAEED ROYALE Preview</title>
+const html = `<title>SAEED ROYALE ${esc(m.version ? 'v' + m.version : '')} Preview</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
 /* Layout: one review column. Verdict, then the recorded run, then checks, then the scene-by-scene shots. */
@@ -53,9 +53,9 @@ figcaption span{font-size:12px;color:var(--muted);direction:ltr;display:block;te
 </style>
 <main dir="rtl" lang="ar">
   <header>
-    <h1>سعيد رويال — معاينة ما قبل الإصدار</h1>
+    <h1>سعيد رويال ${esc(m.version ? 'v' + m.version : '')} — معاينة ما قبل الإصدار</h1>
     <p class="sub">جلسة لعب حقيقية على النسخة المبنية، مسجّلة بالفيديو والصور قبل النشر.</p>
-    <div class="meta" dir="ltr"><span>commit ${esc(m.commit)}</span><span>${esc(when)}</span><span>${esc(m.device)}</span></div>
+    <div class="meta" dir="ltr"><span>v${esc(m.version ?? '?')}</span><span>commit ${esc(m.commit)}</span><span>${esc(when)}</span><span>${esc(m.device)}</span></div>
   </header>
 
   <section class="verdict${allOk ? '' : ' fail'}" aria-label="النتيجة">

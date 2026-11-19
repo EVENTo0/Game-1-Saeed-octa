@@ -1,6 +1,6 @@
 {
   "name": "saeed-royale",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "description": "SAEED ROYALE — سعيد رويال. Mobile third-person survival MVP by EVENTO Project Development.",
   "directories": {
     "test": "tests"
@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "vite --host",
     "build": "vite build",
+    "build:single": "vite build --mode single && node scripts/build-single.mjs",
     "preview": "vite preview --host",
     "test": "vitest run",
     "test:watch": "vitest",

@@ -24,6 +24,7 @@ export const CONFIG = {
   camera: {
     distance: 5.0,
     aimDistance: 2.6,
+    dropDistance: 7.5,
     height: 1.75,
     shoulder: 0.95,
     minPitch: -1.15,
@@ -72,6 +73,17 @@ export const CONFIG = {
     hipFireScale: 0.45,   // assist is much weaker when not aiming down sights
     maxPerFrame: 0.5,     // never close more than half the gap in one frame
     range: 60,            // metres
+  },
+
+  drop: {
+    // Skydive at match start: a short freefall, then the canopy opens. Kept
+    // brief (~5s) because the point is a choice of landing, not a cutscene.
+    height: 80,
+    freefallSpeed: 26,
+    chuteSpeed: 7.5,
+    chuteAt: 24,          // metres above ground where the canopy opens
+    glideFree: 10,        // horizontal steering speed in freefall
+    glideChute: 6,
   },
 
   loot: {

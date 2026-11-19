@@ -20,7 +20,7 @@ export class ThirdPersonCamera {
   update(dt, player, colliders) {
     const C = CONFIG.camera;
     const aiming = player.aiming;
-    const wantDist = aiming ? C.aimDistance : C.distance;
+    const wantDist = player.dropping ? C.dropDistance : aiming ? C.aimDistance : C.distance;
     const wantFov = aiming ? C.aimFov : C.fov;
     this.distance = damp(this.distance, wantDist, 10, dt);
     this.camera.fov = damp(this.camera.fov, wantFov, 10, dt);

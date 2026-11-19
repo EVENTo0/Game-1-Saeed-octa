@@ -78,6 +78,18 @@ async function main() {
   ok('the splash tap does not fall through onto a menu button',
     !(await page.isVisible('#settings')) && (await page.isVisible('#btn-play')));
 
+  // ---------- v2: lobby ----------
+  ok('lobby shows the player level and four outfits', await page.evaluate(() =>
+    document.getElementById('lv-num').textContent === '1' && document.querySelectorAll('#skin-list .skin').length === 4));
+  ok('lobby shows the build version', /^v2\./.test(await page.textContent('#app-version')));
+  const mapBox = await page.locator('#drop-map').boundingBox();
+  await page.locator('#drop-map').tap({ position: { x: mapBox.width * 0.5, y: mapBox.height * 0.5 } });
+  ok('tapping the drop map marks a landing spot', await page.evaluate(() =>
+    document.getElementById('drop-note').textContent.length > 0));
+  // The rest of this suite was written around the classic spawn, away from the
+  // bots; land there so later checks are not decided by an early firefight.
+  await page.evaluate(() => globalThis.SAEED.setDrop({ ...globalThis.SAEED.game.map.spawns.player }));
+
   // ---------- Arabic / RTL ----------
   const dir = await page.getAttribute('html', 'dir');
   const title = await page.textContent('#menu .brand');
@@ -103,6 +115,17 @@ async function main() {
     return g.state === 'playing' && g.player.alive && g.colliders.length > 50;
   }));
   ok('five named opponents are alive', await page.evaluate(() => globalThis.SAEED.game.aliveBots) === 5);
+
+  // ---------- v2: skydive ----------
+  ok('the match opens with a skydive', await page.evaluate(() => globalThis.SAEED.game.player.dropping));
+  ok('the HUD shows altitude while falling', await page.isVisible('#drop-chip'));
+  // dt is clamped, so under software rendering the fall takes longer in wall time
+  const landed = await page.waitForFunction(() => {
+    const p = globalThis.SAEED.game.player;
+    return !p.dropping && p.grounded;
+  }, null, { timeout: 90000 }).then(() => true).catch(() => false);
+  ok('Saeed opens the canopy and lands', landed);
+  ok('bots held fire during the drop', await page.evaluate(() => globalThis.SAEED.game.player.health.value) === 100);
   ok('loot is placed around the map', await page.evaluate(() => globalThis.SAEED.game.loot.remaining) >= 15);
   await page.screenshot({ path: `${SHOTS}04-ingame.png` });
 
@@ -486,6 +509,17 @@ async function main() {
   const winText = await page.textContent('#victory .win');
   ok('victory headline reads مبروك يا سعيد!', winText.trim() === 'مبروك يا سعيد!', winText);
   ok('victory sub-line reads أنت بطل الجولة', (await page.textContent('#victory .sub')).trim() === 'أنت بطل الجولة');
+  const res = await page.evaluate(() => ({
+    place: document.getElementById('win-place').textContent,
+    stats: document.querySelectorAll('#win-stats .stat').length,
+    total: document.querySelector('#win-xp .xp-row.total b')?.textContent ?? '',
+    xp: globalThis.SAEED.profile.data.xp,
+    wins: globalThis.SAEED.profile.data.wins,
+    feed: document.querySelectorAll('#kill-feed .kf-row').length,
+  }));
+  ok('results show 1st place and four stats', res.place.startsWith('#1') && res.stats === 4, JSON.stringify(res));
+  ok('the win awards XP and is saved to the profile', /\+\d+ XP/.test(res.total) && res.xp > 0 && res.wins === 1, res.total);
+  ok('eliminations appear in the kill feed', res.feed > 0);
   await page.screenshot({ path: `${SHOTS}09-victory.png` });
 
   // ---------- restart without a reload ----------
@@ -565,6 +599,7 @@ async function main() {
   await dpage.goto(APP_URL, { waitUntil: 'load' });
   await sleep(900);
   await dpage.click('#splash');
+  await dpage.evaluate(() => globalThis.SAEED.setDrop({ ...globalThis.SAEED.game.map.spawns.player }));
   await dpage.click('#btn-play');
   await sleep(900);
 
@@ -582,6 +617,8 @@ async function main() {
     Math.hypot(dAfter.x - dBefore.x, dAfter.z - dBefore.z) > 1.5,
     `${Math.hypot(dAfter.x - dBefore.x, dAfter.z - dBefore.z).toFixed(2)}m`);
 
+  // crouch, fire and reload are disabled mid-air by design: land first
+  await dpage.waitForFunction(() => !globalThis.SAEED.game.player.dropping, null, { timeout: 90000 }).catch(() => {});
   await dpage.keyboard.press('KeyC');
   await sleep(200);
   ok('desktop C toggles crouch', await dpage.evaluate(() => globalThis.SAEED.game.player.crouching));

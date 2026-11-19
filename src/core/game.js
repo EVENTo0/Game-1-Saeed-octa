@@ -8,7 +8,7 @@ import { createSky } from '../world/sky.js';
 import { LootView } from '../world/lootView.js';
 import { Player } from '../player/player.js';
 import { Bot } from '../ai/bot.js';
-import { buildSaeed, buildBotModel, buildOcta, buildMansour, setCharacterQuality } from '../player/characters.js';
+import { buildSaeed, buildBotModel, buildOcta, buildMansour, buildParachute, setCharacterQuality } from '../player/characters.js';
 import { clearSharedTextures } from '../world/textures.js';
 import { clearCharacterMaterials } from '../player/characters.js';
 import { ProceduralAnimator, AnimState, resolveState } from '../player/animator.js';
@@ -66,6 +66,20 @@ export class Game {
     this._zoneWarned = -1;
     this.aimAssistEnabled = false;   // main.js enables this on touch devices
     this.assistTargetId = null;
+    this.stats = Game.freshStats();
+    this.killer = null;
+    this._landedAt = 0;
+    this._lastKillAt = -99;
+    this._streak = 0;
+    this._proj = new THREE.Vector3();
+    this.skin = null;
+    this.pixelRatioMax = Math.min(window.devicePixelRatio || 1, (QUALITY[quality] ?? QUALITY.med).pixelRatio);
+    this.pixelRatio = this.pixelRatioMax;
+    this._resTimer = 0;
+  }
+
+  static freshStats() {
+    return { shots: 0, hits: 0, damage: 0, kills: 0, placement: 0, time: 0, won: false, killer: null };
   }
 
   // ---------------------------------------------------------------- renderer
@@ -87,7 +101,9 @@ export class Game {
   setQuality(name) {
     const q = QUALITY[name] ?? QUALITY.med;
     this.quality = name;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, q.pixelRatio));
+    this.pixelRatioMax = Math.min(window.devicePixelRatio || 1, q.pixelRatio);
+    this.pixelRatio = this.pixelRatioMax;
+    this.renderer.setPixelRatio(this.pixelRatio);
     this.renderer.shadowMap.enabled = q.shadows;
     this.renderer.shadowMap.type = q.soft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
     this.scene.fog.near = q.fogNear;
@@ -147,6 +163,15 @@ export class Game {
     this.scene.add(this.playerView.root);
     this.weaponMesh = null;
 
+    // Soft key light for the lobby showcase only; the match is lit by the sun.
+    this.lobbyLight = new THREE.DirectionalLight(0xfff0dd, 2.2);
+    this.lobbyLight.visible = false;
+    this.scene.add(this.lobbyLight);
+    this.scene.add(this.lobbyLight.target);
+
+    this.parachute = buildParachute();
+    this.scene.add(this.parachute.root);
+
     this.octa = buildOcta();
     this.scene.add(this.octa.root);
     this.octaMood = 0;
@@ -162,11 +187,19 @@ export class Game {
   }
 
   // ---------------------------------------------------------------- match
-  startMatch() {
+  /** @param {{drop?: {x:number, z:number} | null}} [opts] */
+  startMatch(opts = {}) {
     this.matchTime = 0;
     this.player.reset();
     this.player.pos.x = this.map.spawns.player.x;
     this.player.pos.z = this.map.spawns.player.z;
+    if (opts.drop) this.player.startDrop(opts.drop.x, opts.drop.z);
+    // Spawn protection is counted from touchdown, so a long glide never eats it.
+    this._landedAt = opts.drop ? Infinity : 0;
+    this.stats = Game.freshStats();
+    this.killer = null;
+    this._lastKillAt = -99;
+    this._streak = 0;
     this.playerAnim = new ProceduralAnimator(this.playerView.rig);
     this.zone.reset();
     this.loot.reset(this.map.lootSpots);
@@ -250,6 +283,15 @@ export class Game {
 
     // --- movement / physics ---
     this.player.update(dt, input, this.colliders);
+    if (this.player.justLanded) {
+      this._landedAt = this.matchTime;
+      this.effects.impact({ x: this.player.pos.x, y: this.player.pos.y + 0.1, z: this.player.pos.z }, false);
+      this.cam.addShake(0.3);
+      this.audio.pickup();
+      haptics.hitDealt();
+      this.hud.toast(this.i18n.t('landed'), 'kill');
+      this.events.emit('player:landed');
+    }
 
     // --- weapon ---
     const w = this.player.inventory.weapon;
@@ -276,7 +318,7 @@ export class Game {
     }
 
     // --- loot ---
-    this.nearbyLoot = this.loot.nearest(this.player.pos.x, this.player.pos.z);
+    this.nearbyLoot = this.player.dropping ? null : this.loot.nearest(this.player.pos.x, this.player.pos.z);
     if (input.interact && this.nearbyLoot) this._pickup(this.nearbyLoot);
 
     // --- bots ---
@@ -284,7 +326,7 @@ export class Game {
       player: this.player, colliders: this.colliders, zone: this.zone, time: this.time,
       // Brief spawn protection so the round does not open with the player being
       // shot before they have even looked around.
-      holdFire: this.matchTime < CONFIG.match.spawnGrace,
+      holdFire: this.player.dropping || this.matchTime - this._landedAt < CONFIG.match.spawnGrace,
       onShoot: (bot, accurate, dist) => this._botShoot(bot, accurate, dist),
     };
     for (const bot of this.bots) {
@@ -337,7 +379,24 @@ export class Game {
     const p = this.player;
     const root = this.playerView.root;
     root.position.set(p.pos.x, p.pos.y, p.pos.z);
-    root.rotation.y = p.yaw + Math.PI;
+    const lobby = this.state === MatchState.IDLE;
+    // lobby turntable; otherwise the model faces away from the chase camera
+    root.rotation.y = lobby ? this.time * 0.35 : p.yaw + Math.PI;
+    if (this.state === MatchState.LOST && this.killer) {
+      // kill-cam: swing the chase camera round to look at whoever got Saeed
+      const k = this.killer.pos;
+      const want = Math.atan2(-(k.x - p.pos.x), -(k.z - p.pos.z));
+      let d = want - p.yaw;
+      d = Math.atan2(Math.sin(d), Math.cos(d));
+      p.yaw += d * Math.min(1, dt * 3);
+      p.pitch = damp(p.pitch, -0.08, 3, dt);
+    }
+    const chute = this.parachute.root;
+    chute.visible = p.dropping && p.chute;
+    if (chute.visible) {
+      chute.position.set(p.pos.x, p.pos.y, p.pos.z);
+      chute.rotation.y = p.yaw;
+    }
     const w = p.inventory.weapon;
     const anim = this.playerAnim;
     if (!p.alive) anim.play(AnimState.DEATH);
@@ -377,7 +436,9 @@ export class Game {
     this.lootView.sync(this.loot.items);
     this.lootView.update(dt, this.time, this.player.pos);
     this.effects.update(dt);
-    this.cam.update(dt, this.player, this.colliders);
+    this.lobbyLight.visible = this.state === MatchState.IDLE;
+    if (this.state === MatchState.IDLE) this._showcaseCamera();
+    else this.cam.update(dt, this.player, this.colliders);
     // Follow the player so the shadow frustum stays tight (= sharp shadows on a
     // small map without a huge shadow map).
     this.sun.target.position.set(this.player.pos.x, 0, this.player.pos.z);
@@ -387,6 +448,19 @@ export class Game {
       this.player.pos.z + SUN_DIR.z * 120,
     );
     this.sky.mesh.position.copy(this.cam.camera.position);
+  }
+
+  /** Lobby framing: Saeed on a slow turntable, offset away from the menu panel. */
+  _showcaseCamera() {
+    const p = this.player.pos;
+    const c = this.cam.camera;
+    const side = this.i18n?.rtl ? 1 : -1;      // panel sits on the start side
+    c.fov = 40;
+    c.updateProjectionMatrix();
+    c.position.set(p.x - side * 1.1, p.y + 1.45, p.z + 4.3);
+    c.lookAt(p.x - side * 0.05 + side * 0.95, p.y + 1.0, p.z);
+    this.lobbyLight.position.set(p.x - side * 2, p.y + 3, p.z + 5);
+    this.lobbyLight.target.position.set(p.x, p.y + 1, p.z);
   }
 
   _updateOcta(dt) {
@@ -444,7 +518,7 @@ export class Game {
 
   _tryFire() {
     const p = this.player;
-    if (!p.alive) return;
+    if (!p.alive || p.dropping) return;
     const w = p.inventory.weapon;
     if (!w) return;
     if (w.reloading) return;
@@ -466,6 +540,8 @@ export class Game {
     const spread = w.spreadFor(p.aiming);
     const muzzle = this._muzzleWorldPos();
 
+    this.stats.shots += 1;
+    let connected = false;
     this.audio.shot(def.class, 0);
     this.effects.muzzleFlash(muzzle, def.class === 'shotgun' ? 1.4 : 1);
     this.cam.addShake(def.class === 'marksman' ? 0.55 : def.class === 'shotgun' ? 0.4 : 0.18);
@@ -478,13 +554,14 @@ export class Game {
       this.effects.tracer(muzzle, hit.point);
       if (hit.kind === 'actor') {
         const bot = this.bots.find((b) => b.id === hit.targetId);
-        if (bot) this._damageBot(bot, hit.damage);
+        if (bot) this._damageBot(bot, hit.damage, hit.point, w.id);
         this.effects.impact(hit.point, true);
-        this.hud.markHit();
+        connected = true;
       } else if (hit.kind === 'world') {
         this.effects.impact(hit.point, false);
       }
     }
+    if (connected) this.stats.hits += 1;
   }
 
   _targets() {
@@ -496,25 +573,54 @@ export class Game {
     return this._shotTargets;
   }
 
-  _damageBot(bot, amount) {
+  _damageBot(bot, amount, point = null, weaponId = null) {
     const before = bot.alive;
+    const hpBefore = bot.health.value;
     bot.health.damage(amount, this.time);
+    const dealt = Math.max(0, hpBefore - bot.health.value);
+    this.stats.damage += dealt;
+    const killed = before && !bot.alive;
+    const at = point ?? bot.chest;
+    const scr = this._toScreen(at);
+    if (scr) this.hud.damageNumber(scr.x, scr.y, dealt, killed);
+    this.hud.markHit(killed);
     this.audio.hit(true);
     haptics.hitDealt();
     // being shot at pulls the bot's attention even if it did not see the shooter
     bot.lastKnown = { x: this.player.pos.x, z: this.player.pos.z };
     bot.lostTimer = 0;
-    if (before && !bot.alive) {
+    if (killed) {
       this.player.kills += 1;
-      this._onBotDeath(bot, 'player');
+      this.stats.kills = this.player.kills;
+      this._onBotDeath(bot, 'player', weaponId);
     }
   }
 
-  _onBotDeath(bot, cause) {
-    const label = `${this.i18n.t('killed')}: ${bot.name}`;
-    this.hud.toast(label, cause === 'player' ? 'kill' : '');
+  /** World point -> CSS pixel position, or null when behind the camera. */
+  _toScreen(point) {
+    const v = this._proj.set(point.x, point.y, point.z).project(this.cam.camera);
+    if (v.z > 1 || v.z < -1) return null;
+    return { x: (v.x + 1) / 2 * window.innerWidth, y: (1 - v.y) / 2 * window.innerHeight };
+  }
+
+  botName(bot) { return bot ? this.i18n.t(`bot_${bot.name}`) : ''; }
+
+  _onBotDeath(bot, cause, weaponId = null) {
+    const t = (k) => this.i18n.t(k);
+    const name = this.botName(bot);
+    if (cause === 'player') {
+      const wname = weaponId ? this.lootLabel({ type: 'weapon', weaponId }) : '';
+      this.hud.killFeed(t('saeed'), name, wname, true);
+      // a kill inside 4s of the previous one extends the streak
+      this._streak = this.matchTime - this._lastKillAt < 4 ? this._streak + 1 : 1;
+      this._lastKillAt = this.matchTime;
+      const title = this._streak >= 3 ? t('tripleKill') : this._streak === 2 ? t('doubleKill') : t('elimination');
+      this.hud.banner(title, name);
+      this.audio.pickup(); haptics.kill();
+    } else {
+      this.hud.killFeed(t('zoneKiller'), name, '', false);
+    }
     this.octaMood = 1.6;
-    if (cause === 'player') { this.audio.pickup(); haptics.kill(); }
     const i = this.bots.indexOf(bot);
     const bv = this.botViews[i];
     if (bv) bv.anim.play(AnimState.DEATH);
@@ -554,6 +660,7 @@ export class Game {
     if (!accurate || !p.alive) return;
     const dmg = botShotDamage(def, dist);
     p.takeDamage(dmg, this.time);
+    if (!p.alive) this.killer = bot;
     this._healing = false;
     this.hud.flashDamage();
     this.hud.showDamageFrom(this._screenAngleTo(bot.pos));
@@ -585,20 +692,68 @@ export class Game {
   }
 
   // ---------------------------------------------------------------- results
+  _summary(won) {
+    const s = this.stats;
+    s.kills = this.player.kills;
+    s.time = this.matchTime;
+    s.won = won;
+    s.placement = won ? 1 : this.aliveBots + 1;
+    s.killer = won ? null : (this.killer ? this.botName(this.killer) : this.i18n.t('zoneKiller'));
+    s.accuracy = s.shots ? s.hits / s.shots : 0;
+    return { ...s };
+  }
   _win() {
     if (this.state !== MatchState.PLAYING) return;
     this.state = MatchState.WON;
     this.octaMood = 6;
     this.audio.victory();
     haptics.victory();
-    this.events.emit('match:win', { kills: this.player.kills, time: this.matchTime });
+    this.events.emit('match:win', this._summary(true));
   }
   _lose() {
     if (this.state !== MatchState.PLAYING) return;
     this.state = MatchState.LOST;
     this.audio.defeat();
     haptics.death();
-    this.events.emit('match:lose', { kills: this.player.kills, time: this.matchTime });
+    const sum = this._summary(false);
+    this.hud.killFeed(sum.killer, this.i18n.t('saeed'), '', false);
+    this.hud.banner(this.i18n.t('eliminatedBy'), sum.killer, 'bad');
+    this.events.emit('match:lose', sum);
+  }
+
+  /** Swap Saeed's outfit (lobby skin picker). Rebuilds only his model. */
+  setSkin(skin) {
+    this.skin = skin;
+    const old = this.playerView;
+    const fresh = buildSaeed(skin);
+    fresh.root.position.copy(old.root.position);
+    fresh.root.rotation.copy(old.root.rotation);
+    this.scene.remove(old.root);
+    old.dispose();
+    this.playerView = fresh;
+    this.playerAnim = new ProceduralAnimator(fresh.rig);
+    this.scene.add(fresh.root);
+    if (this.weaponMesh) { this.weaponMesh = null; this._equipWeaponModel(); }
+  }
+
+  /**
+   * Dynamic resolution: drop render scale when frames run long, recover when
+   * there is headroom. Keeps phones near their refresh rate instead of
+   * stuttering when the fight gets busy.
+   */
+  adaptResolution(fps, dt) {
+    if (!this.dynamicResolution) return;
+    this._resTimer += dt;
+    if (this._resTimer < 1.5) return;
+    this._resTimer = 0;
+    let next = this.pixelRatio;
+    if (fps < 42) next = Math.max(0.6, this.pixelRatio - 0.15);
+    else if (fps > 56) next = Math.min(this.pixelRatioMax, this.pixelRatio + 0.1);
+    if (Math.abs(next - this.pixelRatio) > 0.01) {
+      this.pixelRatio = next;
+      this.renderer.setPixelRatio(next);
+      this.renderer.setSize(window.innerWidth, window.innerHeight, false);
+    }
   }
   pause() { if (this.state === MatchState.PLAYING) { this.state = MatchState.PAUSED; return true; } return false; }
   resume() { if (this.state === MatchState.PAUSED) { this.state = MatchState.PLAYING; return true; } return false; }

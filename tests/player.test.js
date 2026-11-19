@@ -217,3 +217,53 @@ describe('line of sight agrees with bullets', () => {
     expect(checked).toBeGreaterThan(50);
   });
 });
+
+describe('Skydive', () => {
+  it('freefalls, opens the canopy low, lands in a few seconds and stays on the ground', () => {
+    const p = new Player({ x: 0, z: 0 });
+    p.startDrop(10, -10);
+    expect(p.dropping).toBe(true);
+    let chuteSeenAt = null, t = 0, landed = false;
+    const dt = 1 / 60;
+    for (; t < 12 && !landed; t += dt) {
+      p.update(dt, IN(), [], dt);
+      if (p.chute && chuteSeenAt === null) chuteSeenAt = p.pos.y;
+      if (p.justLanded) landed = true;
+    }
+    expect(landed).toBe(true);
+    expect(t).toBeLessThan(8);
+    expect(chuteSeenAt).toBeLessThanOrEqual(CONFIG.drop.chuteAt + 0.5);
+    expect(p.pos.y).toBe(0);
+    expect(p.dropping).toBe(false);
+    expect(p.grounded).toBe(true);
+  });
+
+  it('steers toward where the stick points while falling', () => {
+    const p = new Player({ x: 0, z: 0 });
+    p.startDrop(0, 0);
+    run(p, IN({ moveZ: 1 }), [], 2);
+    expect(p.pos.z).toBeLessThan(-8);
+    expect(p.dropping).toBe(true);
+  });
+
+  it('lands on a roof rather than falling through it', () => {
+    const roof = [box(0, 0, 6, 6, 4)];
+    const p = new Player({ x: 0, z: 0 });
+    p.startDrop(0, 0);
+    run(p, IN(), roof, 10);
+    expect(p.dropping).toBe(false);
+    expect(p.pos.y).toBeCloseTo(4, 1);
+  });
+});
+
+describe('Skydive edge cases', () => {
+  it('the landing event lasts one frame even if Saeed dies on touchdown', () => {
+    const p = new Player({ x: 0, z: 0 });
+    p.startDrop(0, 0, 1);
+    for (let i = 0; i < 120 && !p.justLanded; i++) p.update(1 / 60, IN(), []);
+    expect(p.justLanded).toBe(true);
+    p.takeDamage(999);
+    p.update(1 / 60, IN(), []);
+    expect(p.justLanded).toBe(false);
+  });
+});

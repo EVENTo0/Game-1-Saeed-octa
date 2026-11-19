@@ -69,16 +69,31 @@ async function main() {
   await shot('شاشة البداية', 'Splash — Arabic first, EVENTO studio credit');
   check('boots without page errors', errors.length === 0, errors[0] ?? '');
 
-  await page.locator('#splash').tap(); await sleep(600);
-  await shot('القائمة الرئيسية', 'Main menu (RTL)');
-  await page.locator('#lang-en').tap(); await sleep(300);
-  await shot('Main menu — English', 'Language toggle flips to LTR');
-  await page.locator('#lang-ar').tap(); await sleep(300);
+  await page.locator('#splash').tap(); await sleep(1200);
+  await shot('الردهة', 'Lobby: Saeed on a turntable, level and XP, outfits, drop-zone map, version tag');
+  check('lobby lists four outfits', await ev(() => document.querySelectorAll('#skin-list .skin').length) === 4);
+  await page.locator('#lang-en').tap(); await sleep(500);
+  await shot('Lobby — English', 'Language toggle flips the whole lobby to LTR');
+  await page.locator('#lang-ar').tap(); await sleep(400);
+  const mb = await page.locator('#drop-map').boundingBox();
+  await page.locator('#drop-map').tap({ position: { x: mb.width * 0.39, y: mb.height * 0.86 } });
+  await sleep(400);
+  await shot('اختيار موقع الهبوط', 'Tap the map to mark where Saeed lands');
+  // land on the classic spawn so the scripted scenes below stay comparable run to run
+  await ev(() => globalThis.SAEED.setDrop({ ...globalThis.SAEED.game.map.spawns.player }));
 
-  await page.locator('#btn-play').tap(); await sleep(1800);
+  await page.locator('#btn-play').tap(); await sleep(1500);
+  check('match opens with a skydive', await ev(() => globalThis.SAEED.game.player.dropping));
+  await shot('القفز الحر', 'Freefall: altitude chip, first-match coaching line');
+  await page.waitForFunction(() => globalThis.SAEED.game.player.chute, null, { timeout: 60000 });
+  await sleep(900);
+  await shot('المظلة', 'Canopy open in EVENTO purple and gold');
+  const landed = await page.waitForFunction(() => !globalThis.SAEED.game.player.dropping, null, { timeout: 90000 }).then(() => true).catch(() => false);
+  check('Saeed lands safely', landed);
+  await sleep(700);
   const face = await ev(() => { const g = globalThis.SAEED.game; return Math.abs(Math.cos(g.playerView.root.rotation.y - g.player.yaw) + 1); });
   check('character faces away from camera', face < 1e-3);
-  await shot('بداية الجولة', 'Spawn: Saeed seen from behind, OCTA at the shoulder, HUD live');
+  await shot('الهبوط', 'Touchdown: "safe landing" toast, Saeed seen from behind, OCTA at the shoulder');
 
   // ---- look around (touch drag, right side) ----
   const lx = vp.w * 0.7, ly = vp.h * 0.4;
@@ -138,7 +153,7 @@ async function main() {
       if (!bot.alive) break;
     }
   });
-  await shot('إطلاق النار', 'Muzzle flash, tracers and impacts');
+  await shot('إسقاط', 'Elimination banner, red kill hitmarker and the kill feed');
   const hp1 = await ev(() => globalThis.SAEED.game.__duel.health.value);
   check('shots damage an opponent', hp1 < hp0, `${hp0} → ${hp1}`);
   await ev(() => { globalThis.SAEED.input.state.aim = false; });
@@ -171,8 +186,25 @@ async function main() {
     g.bots.filter((b) => b.alive).forEach((b) => g._damageBot(b, 999));
   });
   await sleep(3200);
-  await shot('النصر', 'Victory screen');
+  await shot('النصر والنتائج', 'Victory results: placement, stats, itemised XP, level bar, unlocks');
   check('victory screen shows', await page.isVisible('#victory'));
+  check('a win awards XP', await ev(() => globalThis.SAEED.profile.data.xp) > 0);
+
+  // ---- second round: death, kill-cam, defeat results ----
+  await page.locator('#btn-play-again').tap(); await sleep(800);
+  await page.waitForFunction(() => !globalThis.SAEED.game.player.dropping, null, { timeout: 90000 }).catch(() => {});
+  await ev(() => {
+    const g = globalThis.SAEED.game;
+    const b = g.bots.find((x) => x.alive);
+    b.pos.x = g.player.pos.x + 9; b.pos.z = g.player.pos.z - 6;
+    g.killer = b; g.player.takeDamage(999);
+  });
+  await sleep(500);
+  await shot('لقطة الإسقاط', 'Kill-cam: the camera turns to face whoever eliminated Saeed');
+  await page.waitForSelector('#defeat:not(.hidden)', { timeout: 20000 }).catch(() => {});
+  await sleep(600);
+  await shot('نتائج الخسارة', 'Defeat results: placement, who eliminated Saeed, XP still earned');
+  check('defeat screen names the killer', (await page.textContent('#lose-by')).length > 4);
 
   check('no page errors during the run', errors.length === 0, errors[0] ?? '');
 
@@ -185,6 +217,7 @@ async function main() {
   const manifest = {
     generatedAt: new Date().toISOString(),
     commit: (await import('node:child_process')).execSync('git rev-parse --short HEAD').toString().trim(),
+    version: JSON.parse(readFileSync('package.json', 'utf8')).version,
     device: 'Pixel 5 landscape (851×393), software-rendered WebGL',
     video: vids[0] ? 'video/session.webm' : null,
     shots, checks,

@@ -266,11 +266,59 @@ function compactRig(rig) {
 }
 
 /** SAEED — hero colours: black/deep-purple tactical armour with gold detail. */
-export function buildSaeed() {
+export function buildSaeed(skin = null) {
   return buildHumanoid({
-    primary: PALETTE.armor, accent: PALETTE.purple, gold: PALETTE.gold,
-    cloth: PALETTE.cloth, emblem: true,
+    primary: skin?.primary ?? PALETTE.armor, accent: skin?.accent ?? PALETTE.purple,
+    gold: skin?.gold ?? PALETTE.gold, cloth: skin?.cloth ?? PALETTE.cloth,
+    visor: skin?.visor, emblem: true,
   });
+}
+
+/**
+ * Parachute canopy in EVENTO purple and gold panels, with rigging lines down
+ * to the harness. One shared material and vertex colours: two draw calls.
+ */
+export function buildParachute() {
+  const root = new THREE.Group();
+  const geo = new THREE.SphereGeometry(2.6, 16, 6, 0, Math.PI * 2, 0, Math.PI / 2.4);
+  geo.scale(1, 0.5, 1);
+  const pos = geo.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  const purple = new THREE.Color(0x7a4dff).convertSRGBToLinear();
+  const gold = new THREE.Color(0xe8bd47).convertSRGBToLinear();
+  for (let i = 0; i < pos.count; i++) {
+    const a = Math.atan2(pos.getZ(i), pos.getX(i)) + Math.PI;
+    const c = Math.floor(a / (Math.PI * 2) * 8) % 2 ? gold : purple;
+    colors.set([c.r, c.g, c.b], i * 3);
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  const canopyMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, side: THREE.DoubleSide });
+  const canopy = new THREE.Mesh(geo, canopyMat);
+  canopy.position.y = 4.2;
+  canopy.castShadow = true;
+  root.add(canopy);
+  const lineMat = new THREE.MeshBasicMaterial({ color: 0x2a2238 });
+  const lines = [];
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    const top = new THREE.Vector3(Math.cos(a) * 2.2, 4.4, Math.sin(a) * 2.2);
+    const bottom = new THREE.Vector3(0, 1.45, 0);
+    const len = top.distanceTo(bottom);
+    const g = new THREE.CylinderGeometry(0.012, 0.012, len, 3);
+    g.translate(0, len / 2, 0);
+    const dir = top.clone().sub(bottom).normalize();
+    g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir));
+    g.translate(bottom.x, bottom.y, bottom.z);
+    lines.push(g);
+  }
+  const rig = new THREE.Mesh(mergeGeometries(lines, false), lineMat);
+  lines.forEach((g) => g.dispose());
+  root.add(rig);
+  root.visible = false;
+  return {
+    root,
+    dispose() { geo.dispose(); rig.geometry.dispose(); canopyMat.dispose(); lineMat.dispose(); },
+  };
 }
 
 const BOT_SKINS = [

@@ -35,6 +35,15 @@
   <div id="zone-warning" class="hidden">المنطقة تضيق</div>
   <div id="damage-vignette"></div>
   <div id="damage-dirs" aria-hidden="true"></div>
+  <div id="hitmarker" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+  <div id="damage-numbers" aria-hidden="true"></div>
+  <div id="kill-feed" aria-live="polite"></div>
+  <div id="elim-banner" class="hidden"><b id="elim-title"></b><span id="elim-sub"></span></div>
+  <div id="drop-chip" class="hud-chip hidden">
+    <span class="chip-label" data-i18n="skydive">قفز حر</span>
+    <span class="chip-value" id="drop-alt">80m</span>
+  </div>
+  <div id="coach-hint" class="hidden"></div>
 
   <div class="hud-bottom-left">
     <div class="health-wrap">
@@ -94,20 +103,44 @@
   <p class="hint" id="splash-hint" data-i18n="tapToStart">اضغط للبدء</p>
 </div>
 
-<!-- ============ MAIN MENU ============ -->
-<div id="menu" class="screen overlay hidden">
-  <div class="menu-inner">
-    <div class="octa-mark small">🐙</div>
-    <h1 class="brand" data-i18n="title">سعيد رويال</h1>
-    <p class="studio" data-i18n="studio">إيفينتو لتطوير المشاريع</p>
-    <button class="menu-btn primary" id="btn-play" data-i18n="play">ابدأ</button>
-    <button class="menu-btn" id="btn-settings" data-i18n="settings">الإعدادات</button>
-    <div class="lang-toggle" role="group" aria-label="language">
-      <button id="lang-ar" class="lang">AR</button>
-      <span class="lang-sep">|</span>
-      <button id="lang-en" class="lang">EN</button>
+<!-- ============ LOBBY ============ -->
+<div id="menu" class="screen lobby hidden">
+  <div class="lobby-panel">
+    <div class="lobby-brand">
+      <h1 class="brand" data-i18n="title">سعيد رويال</h1>
+      <p class="studio" data-i18n="studio">إيفينتو لتطوير المشاريع</p>
     </div>
-    <p class="hint" data-i18n="controlsHint">حرّك بالعصا اليسرى — انظر بالسحب على اليمين</p>
+    <div class="level-card">
+      <div class="level-badge"><small data-i18n="level">المستوى</small><b id="lv-num">1</b></div>
+      <div class="level-info">
+        <div class="level-bar"><div id="lv-fill"></div></div>
+        <div class="level-meta"><span id="lv-xp">0 / 300 XP</span><span id="lv-record"></span></div>
+      </div>
+    </div>
+    <button class="menu-btn primary play" id="btn-play">
+      <span data-i18n="play">ابدأ</span>
+      <small data-i18n="modeSolo">فردي · 6 لاعبين · خريطة الواحة</small>
+    </button>
+    <div class="lobby-row">
+      <button class="menu-btn" id="btn-settings" data-i18n="settings">الإعدادات</button>
+      <div class="lang-toggle" role="group" aria-label="language">
+        <button id="lang-ar" class="lang">AR</button>
+        <button id="lang-en" class="lang">EN</button>
+      </div>
+    </div>
+    <p class="version" id="app-version">v2.0</p>
+  </div>
+
+  <div class="lobby-side">
+    <section class="side-card">
+      <h3 data-i18n="outfit">الزي</h3>
+      <div id="skin-list" class="skin-list"></div>
+    </section>
+    <section class="side-card">
+      <h3 data-i18n="dropZone">موقع الهبوط</h3>
+      <canvas id="drop-map" width="240" height="240" aria-label="drop zone map"></canvas>
+      <p class="drop-note" id="drop-note" data-i18n="dropHint">اضغط على الخريطة لاختيار موقع الهبوط</p>
+    </section>
   </div>
 </div>
 
@@ -145,26 +178,41 @@
 
 <!-- ============ VICTORY ============ -->
 <div id="victory" class="screen overlay hidden">
-  <div class="menu-inner">
-    <div class="octa-mark small">🐙</div>
-    <h1 class="win" data-i18n="victoryTitle">مبروك يا سعيد!</h1>
-    <p class="sub" data-i18n="victorySub">أنت بطل الجولة</p>
-    <p class="tag" data-i18n="victoryTag">VICTORY</p>
-    <div class="stats"><span id="win-kills">0</span> · <span id="win-time">0:00</span></div>
-    <button class="menu-btn primary" id="btn-play-again" data-i18n="playAgain">العب مرة أخرى</button>
-    <button class="menu-btn" id="btn-win-menu" data-i18n="quit">القائمة الرئيسية</button>
+  <div class="menu-inner results-card">
+    <div class="res-head">
+      <div class="placement" id="win-place">#1</div>
+      <div class="res-title">
+        <h1 class="win" data-i18n="victoryTitle">مبروك يا سعيد!</h1>
+        <p class="sub" data-i18n="victorySub">أنت بطل الجولة</p>
+        <p class="tag" data-i18n="victoryTag">VICTORY</p>
+      </div>
+    </div>
+    <div class="res-stats" id="win-stats"></div>
+    <div class="res-xp" id="win-xp"></div>
+    <div class="res-actions">
+      <button class="menu-btn primary" id="btn-play-again" data-i18n="playAgain">العب مرة أخرى</button>
+      <button class="menu-btn" id="btn-win-menu" data-i18n="lobby">الردهة</button>
+    </div>
   </div>
 </div>
 
 <!-- ============ DEFEAT ============ -->
 <div id="defeat" class="screen overlay hidden">
-  <div class="menu-inner">
-    <h1 class="lose" data-i18n="defeatTitle">انتهت الجولة</h1>
-    <p class="sub" data-i18n="defeatSub">حظاً أوفر في الجولة القادمة</p>
-    <p class="tag" data-i18n="defeatTag">TRY AGAIN</p>
-    <div class="stats"><span id="lose-kills">0</span> · <span id="lose-time">0:00</span></div>
-    <button class="menu-btn primary" id="btn-retry" data-i18n="playAgain">العب مرة أخرى</button>
-    <button class="menu-btn" id="btn-lose-menu" data-i18n="quit">القائمة الرئيسية</button>
+  <div class="menu-inner results-card">
+    <div class="res-head">
+      <div class="placement" id="lose-place">#1</div>
+      <div class="res-title">
+        <h1 class="lose" data-i18n="defeatTitle">انتهت الجولة</h1>
+        <p class="sub" id="lose-by"></p>
+        <p class="tag" data-i18n="defeatTag">TRY AGAIN</p>
+      </div>
+    </div>
+    <div class="res-stats" id="lose-stats"></div>
+    <div class="res-xp" id="lose-xp"></div>
+    <div class="res-actions">
+      <button class="menu-btn primary" id="btn-retry" data-i18n="playAgain">العب مرة أخرى</button>
+      <button class="menu-btn" id="btn-lose-menu" data-i18n="lobby">الردهة</button>
+    </div>
   </div>
 </div>
 

@@ -29,6 +29,9 @@ export class Player {
     this.speed = 0;
     this.moving = false;
     this.healTimer = 0;
+    this.dropping = false;
+    this.chute = false;
+    this.justLanded = false;
     this.health.reset();
     this.inventory.reset();
     this.kills = 0;
@@ -46,6 +49,16 @@ export class Player {
       z: -Math.cos(this.yaw) * cp,
     };
   }
+  /** Begin the match-start skydive above (x, z). */
+  startDrop(x, z, height = CONFIG.drop.height) {
+    this.pos = { x, y: height, z };
+    this.vel = { x: 0, y: -CONFIG.drop.freefallSpeed * 0.5, z: 0 };
+    this.dropping = true;
+    this.chute = false;
+    this.grounded = false;
+    this.pitch = -0.55;        // look down at the landing area
+  }
+
   look(dx, dy) {
     this.yaw -= dx;
     this.pitch = clamp(this.pitch - dy, CONFIG.camera.minPitch, CONFIG.camera.maxPitch);
@@ -53,7 +66,10 @@ export class Player {
 
   update(dt, input, colliders) {
     const P = CONFIG.player;
+    this.justLanded = false;            // one-frame event; cleared even when dead
     if (!this.alive) { this.moving = false; this.speed = 0; return; }
+
+    if (this.dropping) { this._updateDrop(dt, input, colliders); return; }
 
     this.aiming = !!input.aim;
     const wantCrouch = !!input.crouch;
@@ -115,6 +131,43 @@ export class Player {
       this.grounded = false;
     }
 
+    this.speed = Math.hypot(this.vel.x, this.vel.z);
+    this.moving = this.speed > 0.35;
+  }
+
+  _updateDrop(dt, input, colliders) {
+    const D = CONFIG.drop;
+    const P = CONFIG.player;
+    this.aiming = false;
+    this.crouching = false;
+    const ground = groundHeightAt(this.pos.x, this.pos.z, colliders, this.pos.y + P.stepHeight, P.stepHeight, P.radius);
+    if (!this.chute && this.pos.y - ground < D.chuteAt) this.chute = true;
+
+    const ix = clamp(input.moveX ?? 0, -1, 1);
+    const iz = clamp(input.moveZ ?? 0, -1, 1);
+    const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
+    const glide = this.chute ? D.glideChute : D.glideFree;
+    const tx = (ix * cos - iz * sin) * glide;
+    const tz = (-ix * sin - iz * cos) * glide;
+    this.vel.x = damp(this.vel.x, tx, 3, dt);
+    this.vel.z = damp(this.vel.z, tz, 3, dt);
+    this.vel.y = damp(this.vel.y, -(this.chute ? D.chuteSpeed : D.freefallSpeed), this.chute ? 4 : 2, dt);
+
+    this.pos.x += this.vel.x * dt;
+    this.pos.z += this.vel.z * dt;
+    resolveXZ(this.pos, P.radius, colliders, this.pos.y, this.height, P.stepHeight);
+    this.pos.y += this.vel.y * dt;
+    const gy = groundHeightAt(this.pos.x, this.pos.z, colliders, this.pos.y + P.stepHeight, P.stepHeight, P.radius * 0.6);
+    if (this.pos.y <= gy + 1e-3) {
+      this.pos.y = gy;
+      this.vel.y = 0;
+      this.vel.x *= 0.3; this.vel.z *= 0.3;
+      this.grounded = true;
+      this.dropping = false;
+      this.chute = false;
+      this.justLanded = true;
+      this.pitch = Math.max(this.pitch, -0.12);
+    }
     this.speed = Math.hypot(this.vel.x, this.vel.z);
     this.moving = this.speed > 0.35;
   }

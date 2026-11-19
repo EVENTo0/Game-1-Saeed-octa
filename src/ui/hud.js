@@ -20,6 +20,10 @@ export class HUD {
       crosshair: $('crosshair'), minimap: $('minimap'),
       mansour: $('mansour-bubble'), mansourName: $('mansour-name'), mansourLine: $('mansour-line'),
       damageDirs: $('damage-dirs'),
+      damageNums: $('damage-numbers'), hitmarker: $('hitmarker'),
+      killFeed: $('kill-feed'), banner: $('elim-banner'),
+      bannerTitle: $('elim-title'), bannerSub: $('elim-sub'),
+      hint: $('coach-hint'), dropChip: $('drop-chip'), dropAlt: $('drop-alt'),
       fps: $('fps-counter'),
     };
     this.ctx = this.el.minimap?.getContext('2d') ?? null;
@@ -62,10 +66,72 @@ export class HUD {
     while (this.el.damageDirs.children.length > 4) this.el.damageDirs.firstChild.remove();
   }
 
-  markHit() {
+  /** Crosshair flash plus an X hitmarker; a kill gets the bigger red one. */
+  markHit(kill = false) {
     this.el.crosshair.classList.add('hit');
     clearTimeout(this._cross);
     this._cross = setTimeout(() => this.el.crosshair.classList.remove('hit'), 120);
+    const hm = this.el.hitmarker;
+    if (!hm) return;
+    hm.classList.remove('show', 'kill');
+    void hm.offsetWidth;                       // restart the animation
+    hm.classList.add('show');
+    if (kill) hm.classList.add('kill');
+  }
+
+  /** Floating damage number at a screen position (CSS px). */
+  damageNumber(x, y, amount, kill = false) {
+    const box = this.el.damageNums;
+    if (!box || !(amount > 0)) return;
+    const d = document.createElement('div');
+    d.className = `dmg-num${kill ? ' kill' : amount >= 40 ? ' big' : ''}`;
+    d.textContent = String(Math.round(amount));
+    d.style.left = `${x + (Math.random() - 0.5) * 24}px`;
+    d.style.top = `${y}px`;
+    box.appendChild(d);
+    setTimeout(() => d.remove(), 800);
+    while (box.children.length > 10) box.firstChild.remove();
+  }
+
+  /** One line in the kill feed: killer → victim [weapon]. */
+  killFeed(killer, victim, weapon = '', mine = false) {
+    const feed = this.el.killFeed;
+    if (!feed) return;
+    const row = document.createElement('div');
+    row.className = `kf-row${mine ? ' mine' : ''}`;
+    const a = document.createElement('b'); a.textContent = killer;
+    const arrow = document.createElement('span'); arrow.className = 'kf-x'; arrow.textContent = '✕';
+    const v = document.createElement('b'); v.textContent = victim;
+    row.append(a, arrow, v);
+    if (weapon) { const w = document.createElement('small'); w.textContent = weapon; row.append(w); }
+    feed.prepend(row);
+    setTimeout(() => row.remove(), 5000);
+    while (feed.children.length > 4) feed.lastChild.remove();
+  }
+
+  /** Centre banner for eliminations and the death call-out. */
+  banner(title, sub = '', kind = '') {
+    const b = this.el.banner;
+    if (!b) return;
+    this.el.bannerTitle.textContent = title;
+    this.el.bannerSub.textContent = sub;
+    b.className = `show ${kind}`;
+    clearTimeout(this._ban);
+    this._ban = setTimeout(() => { b.className = 'hidden'; }, 1900);
+  }
+
+  /** Coaching line for a first match; empty text hides it. */
+  hint(text) {
+    if (!this.el.hint) return;
+    this.el.hint.textContent = text || '';
+    this.el.hint.classList.toggle('hidden', !text);
+  }
+
+  clearFeedback() {
+    this.el.killFeed?.replaceChildren();
+    this.el.damageNums?.replaceChildren();
+    if (this.el.banner) this.el.banner.className = 'hidden';
+    this.hint('');
   }
   showMansour(on) {
     this.el.mansour.classList.toggle('hidden', !on);
@@ -118,6 +184,14 @@ export class HUD {
 
     // enemies
     this.el.enemies.textContent = String(game.aliveBots);
+
+    // skydive altitude
+    if (this.el.dropChip) {
+      this.el.dropChip.classList.toggle('hidden', !p.dropping);
+      if (p.dropping) {
+        this.el.dropAlt.textContent = `${Math.max(0, Math.round(p.pos.y))}m · ${p.chute ? t('chuteOpen') : t('freefall')}`;
+      }
+    }
 
     // zone
     const z = game.zone;
