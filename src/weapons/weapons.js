@@ -5,25 +5,25 @@ export const WEAPONS = {
     id: 'OCTA_AR', nameAr: 'أوكتا-إيه آر', nameEn: 'OCTA-AR', class: 'rifle',
     damage: 17, rpm: 620, magSize: 30, reserveStart: 90, reloadTime: 2.0,
     spread: 0.018, aimSpread: 0.006, range: 120, pellets: 1, auto: true,
-    recoil: 0.014, ammoType: 'rifle', color: 0x7a5cff,
+    recoil: 0.014, ammoType: 'rifle', color: 0x7a5cff, rarity: 'common',
   },
   DESERT_CLAW: {
     id: 'DESERT_CLAW', nameAr: 'مخلب الصحراء', nameEn: 'DESERT CLAW', class: 'shotgun',
     damage: 11, rpm: 95, magSize: 6, reserveStart: 24, reloadTime: 2.6,
     spread: 0.085, aimSpread: 0.055, range: 34, pellets: 7, auto: false,
-    recoil: 0.05, ammoType: 'shell', color: 0xc9a227,
+    recoil: 0.05, ammoType: 'shell', color: 0xc9a227, rarity: 'rare',
   },
   SAEED_50: {
     id: 'SAEED_50', nameAr: 'سعيد-٥٠', nameEn: 'SAEED-50', class: 'marksman',
     damage: 78, rpm: 48, magSize: 5, reserveStart: 20, reloadTime: 3.0,
     spread: 0.05, aimSpread: 0.0012, range: 220, pellets: 1, auto: false,
-    recoil: 0.08, ammoType: 'heavy', color: 0x2fd4c4,
+    recoil: 0.08, ammoType: 'heavy', color: 0x2fd4c4, rarity: 'epic',
   },
   OCTA_BLADE: {
     id: 'OCTA_BLADE', nameAr: 'نصل أوكتا', nameEn: 'OCTA BLADE', class: 'melee',
     damage: 55, rpm: 110, magSize: Infinity, reserveStart: 0, reloadTime: 0,
     spread: 0, aimSpread: 0, range: 2.6, pellets: 1, auto: false,
-    recoil: 0.02, ammoType: 'none', color: 0x9b7bff,
+    recoil: 0.02, ammoType: 'none', color: 0x9b7bff, rarity: 'rare',
   },
 };
 

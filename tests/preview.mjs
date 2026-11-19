@@ -158,6 +158,51 @@ async function main() {
   check('shots damage an opponent', hp1 < hp0, `${hp0} → ${hp1}`);
   await ev(() => { globalThis.SAEED.input.state.aim = false; });
 
+  // ---- v2.1: armour vest ----
+  await ev(() => {
+    const g = globalThis.SAEED.game;
+    const it = g.loot.items.find((i) => i.type === 'armor' && !i.taken);
+    g.player.pos.x = it.x + 0.6; g.player.pos.z = it.z + 0.6; g.player.health.value = 100;
+    globalThis.SAEED.input.state.interact = true;
+  });
+  await page.waitForFunction(() => globalThis.SAEED.game.player.inventory.armor > 0, null, { timeout: 15000 }).catch(() => {});
+  await sleep(500);
+  await shot('الدرع الواقي', 'Armour vest picked up: blue armour bar above health');
+  check('armour vest picked up', await ev(() => globalThis.SAEED.game.player.inventory.armor) > 0);
+
+  // ---- v2.1: supply drop ----
+  await ev(() => {
+    const g = globalThis.SAEED.game;
+    g.matchTime = Math.max(g.matchTime, 50);
+  });
+  await page.waitForFunction(() => globalThis.SAEED.game.airdrop.state === 'falling', null, { timeout: 15000 }).catch(() => {});
+  await ev(() => {
+    const g = globalThis.SAEED.game; const a = g.airdrop;
+    a.pos.y = a.ground + 16;
+    g.player.pos.x = a.pos.x + 7; g.player.pos.z = a.pos.z + 10; g.player.pos.y = 0;
+    g.player.yaw = Math.atan2(-(a.pos.x - g.player.pos.x), -(a.pos.z - g.player.pos.z)); g.player.pitch = 0.32;
+    g.player.health.value = 100;
+  });
+  await sleep(700);
+  await shot('الإمداد الجوي', 'Supply drop inbound under its canopy; gold marker on the minimap');
+  await ev(() => { const a = globalThis.SAEED.game.airdrop; a.pos.y = a.ground + 0.3; });
+  await page.waitForFunction(() => globalThis.SAEED.game.airdrop.state === 'landed', null, { timeout: 15000 }).catch(() => {});
+  await ev(() => { const g = globalThis.SAEED.game; g.player.pitch = 0.05; g.player.health.value = 100; });
+  await sleep(700);
+  await shot('غنائم الإمداد', 'Landed: rare loot with light beams, epic weapon in gold');
+  check('supply drop landed with loot', await ev(() => globalThis.SAEED.game.loot.items.filter((i) => i.special).length) === 4);
+
+  // ---- v2.1: outside the zone ----
+  await ev(() => {
+    const g = globalThis.SAEED.game; const z = g.zone;
+    g.player.pos.x = z.center.x + z.radius + 30; g.player.pos.z = z.center.z + 10; g.player.pos.y = 0;
+    g.player.yaw = 0.6; g.player.health.value = 100;
+  });
+  await sleep(800);
+  await shot('خارج المنطقة', 'Outside the zone: arrow and distance back to safety');
+  check('zone arrow shows outside the zone', await ev(() => !document.getElementById('zone-arrow').classList.contains('hidden')));
+  await ev(() => { const g = globalThis.SAEED.game; g.player.pos.x = g.zone.center.x; g.player.pos.z = g.zone.center.z; g.player.health.value = 100; });
+
   // ---- loot ----
   await ev(() => {
     const g = globalThis.SAEED.game;

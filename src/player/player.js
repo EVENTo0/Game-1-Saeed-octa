@@ -172,8 +172,15 @@ export class Player {
     this.moving = this.speed > 0.35;
   }
 
+  /** Armour soaks a share of each hit until it runs out. Returns health lost. */
   takeDamage(amount, t = 0) {
     this.healTimer = 0;
+    const inv = this.inventory;
+    if (inv.armor > 0 && amount > 0) {
+      const soaked = Math.min(inv.armor, amount * CONFIG.armor.absorb);
+      inv.armor -= soaked;
+      amount -= soaked;
+    }
     return this.health.damage(amount, t);
   }
   beginHeal() {

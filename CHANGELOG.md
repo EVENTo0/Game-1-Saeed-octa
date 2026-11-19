@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.1.0
+
+In-match depth.
+
+- **Armour vest**: new pickup at four spots; soaks half of each hit until its
+  40 points are gone. Blue bar above health.
+- **Supply drop**: announced at 0:50, falls under a canopy inside the next
+  zone, opens into an epic SAEED-50, a vest, a med kit and ammo. Always marked
+  in gold on the minimap.
+- **Loot rarity**: weapon crates coloured common / rare / epic; epic and
+  supply-drop loot get a light beam visible from three times farther.
+- **Zone guidance**: outside the safe zone an arrow and distance point back.
+- **Balance** (tests/balance.mjs, N=200 per skill): win rate 26.5/22.5/19.5%
+  on 2.0 → 32.5/30.0/22.5% on 2.1. The new map spots alone account for about
+  half of that; the vest was softened from 50 pts/60% to 40 pts/50%.
+
 ## 2.0.0
 
 Full match loop rebuilt to current mobile battle-royale expectations. v1.0.0

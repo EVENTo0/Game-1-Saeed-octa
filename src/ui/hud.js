@@ -23,6 +23,8 @@ export class HUD {
       damageNums: $('damage-numbers'), hitmarker: $('hitmarker'),
       killFeed: $('kill-feed'), banner: $('elim-banner'),
       bannerTitle: $('elim-title'), bannerSub: $('elim-sub'),
+      armorBar: $('armor-bar'), armorFill: $('armor-fill'),
+      zoneArrow: $('zone-arrow'), zoneArrowIcon: $('zone-arrow-icon'), zoneDist: $('zone-dist'),
       hint: $('coach-hint'), dropChip: $('drop-chip'), dropAlt: $('drop-alt'),
       fps: $('fps-counter'),
     };
@@ -150,6 +152,11 @@ export class HUD {
     this.el.health.style.width = `${p.health.ratio * 100}%`;
     this.el.health.classList.toggle('low', p.health.ratio < 0.35);
     this.el.healthValue.textContent = String(hp);
+    const armor = p.inventory.armor ?? 0;
+    if (this.el.armorBar) {
+      this.el.armorBar.classList.toggle('empty', armor <= 0);
+      this.el.armorFill.style.width = `${(armor / CONFIG.armor.max) * 100}%`;
+    }
     this._lastHealth = hp;
 
     // weapon / ammo
@@ -204,6 +211,17 @@ export class HUD {
     this.el.zoneWarning.textContent = outside ? t('zoneOutside') : t('zoneClosing');
     this.el.zoneWarning.classList.toggle('hidden', !(shrinking || outside));
 
+    // outside the zone: an arrow toward safety and how far it is
+    if (this.el.zoneArrow) {
+      this.el.zoneArrow.classList.toggle('hidden', !outside || !p.alive);
+      if (outside) {
+        const ang = game._screenAngleTo(z.center);
+        this.el.zoneArrowIcon.style.transform = `rotate(${ang}rad)`;
+        const d = Math.max(0, Math.hypot(p.pos.x - z.center.x, p.pos.z - z.center.z) - z.radius);
+        this.el.zoneDist.textContent = `${Math.ceil(d)}m`;
+      }
+    }
+
     // pickup prompt
     const item = game.nearbyLoot;
     if (item) {
@@ -246,6 +264,20 @@ export class HUD {
       if (Math.hypot(dx, dz) > c) continue;
       ctx.fillRect(dx - 1.2, dz - 1.2, 2.4, 2.4);
     }
+    // supply drop: public information, always marked
+    const ad = game.airdrop;
+    if (ad?.active) {
+      const dx = wx(ad.pos.x), dz = wz(ad.pos.z);
+      const r = Math.hypot(dx, dz);
+      const k = r > c - 6 ? (c - 6) / r : 1;        // pin to the rim when off the dial
+      ctx.save();
+      ctx.translate(dx * k, dz * k);
+      ctx.rotate(-game.player.yaw);
+      ctx.fillStyle = '#f2c14e'; ctx.strokeStyle = '#150f28'; ctx.lineWidth = 1.5;
+      ctx.fillRect(-4.5, -4.5, 9, 9); ctx.strokeRect(-4.5, -4.5, 9, 9);
+      ctx.restore();
+    }
+
     // bots (only those the player can currently see — no wallhack)
     ctx.fillStyle = '#ff4d6d';
     for (const b of game.bots) {

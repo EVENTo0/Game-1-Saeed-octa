@@ -86,6 +86,18 @@ export const CONFIG = {
     glideChute: 6,
   },
 
+  armor: {
+    max: 40,              // vest points
+    absorb: 0.5,          // share of each hit; tuned with tests/balance.mjs (N=200)
+  },
+  airdrop: {
+    // One supply drop per match, announced, falling slowly enough to race for.
+    at: 50,               // match seconds when it is announced
+    height: 70,
+    fallSpeed: 4.5,
+    loot: ['weapon:SAEED_50', 'armor', 'medkit', 'ammo'],
+  },
+
   loot: {
     pickupRange: 2.4,
   },

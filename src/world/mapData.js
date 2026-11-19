@@ -82,6 +82,7 @@ export function buildMap() {
     { x: -33, z: -34, kind: 'ammo' },
     { x: -44, z: -35, kind: 'medkit' },
     { x: -14, z: -51, kind: 'medkit' },
+    { x: -24, z: -46, kind: 'armor' },
   );
 
   // ---------- 2. Oasis (centre-east) ----------
@@ -104,6 +105,7 @@ export function buildMap() {
   add(building({ x: 22, z: -34, w: 9, d: 7, h: 3.2, door: 'e', style: 'tent' }));
   lootSpots.push({ x: 22, z: -34, kind: 'ammo' });
   lootSpots.push({ x: 29, z: -32, kind: 'medkit' });
+  lootSpots.push({ x: 25, z: -38, kind: 'armor' });
 
   // ---------- 3. Rocky hill (south-east) ----------
   // stacked boxes you can actually climb/stand on
@@ -121,6 +123,7 @@ export function buildMap() {
     { x: hill.x, z: hill.z, kind: 'weapon:SAEED_50' },
     { x: hill.x + 8, z: hill.z - 6, kind: 'ammo' },
     { x: hill.x - 9, z: hill.z + 7, kind: 'medkit' },
+    { x: hill.x + 4, z: hill.z + 3, kind: 'armor' },
   );
   // scattered boulders for cover on the approach
   [[26, 30], [30, 52], [58, 24], [20, 46]].forEach(([x, z], i) => {
@@ -147,6 +150,7 @@ export function buildMap() {
     { x: out.x + 17, z: out.z + 9, kind: 'weapon:DESERT_CLAW' },
     { x: out.x - 14, z: out.z + 4, kind: 'medkit' },
     { x: out.x + 8, z: out.z - 6, kind: 'ammo' },
+    { x: out.x + 4, z: out.z + 5, kind: 'armor' },
   );
 
   // ---------- 5. Open desert middle: sparse cover so it isn't a killing field ----------

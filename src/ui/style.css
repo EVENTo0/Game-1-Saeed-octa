@@ -421,3 +421,15 @@ h2{font-size:clamp(20px,5vw,30px);color:var(--gold-soft)}
   .lobby-panel,.lobby-side{width:100%}
   .results-card{grid-template-columns:1fr;grid-template-areas:"head" "stats" "xp" "actions"}
 }
+
+/* ---- v2.1: armour, zone arrow ---- */
+.armor-bar{height:6px;border-radius:4px;background:rgba(74,168,255,.15);overflow:hidden;margin-bottom:4px;
+  border:1px solid rgba(74,168,255,.35)}
+.armor-bar.empty{opacity:.35}
+#armor-fill{height:100%;width:0;background:linear-gradient(90deg,#2f7fe0,#7cc4ff);transition:width .2s}
+#zone-arrow{position:absolute;top:34%;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;
+  padding:6px 12px;border-radius:12px;background:rgba(60,12,24,.78);border:1px solid var(--danger)}
+.za-arrow{display:inline-block;font-size:20px;color:var(--danger);line-height:1;transition:transform .12s linear}
+.za-text{display:flex;flex-direction:column;line-height:1.1}
+.za-text small{font-size:10px;color:#ffc2cd;letter-spacing:.06em}
+.za-text b{font-size:16px;direction:ltr;font-variant-numeric:tabular-nums}

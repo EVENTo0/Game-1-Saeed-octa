@@ -5,7 +5,8 @@ export function makeLootItem(spot, jitter = 0) {
   const [type, weaponId] = spot.kind.split(':');
   return {
     id: `loot_${nextId++}`,
-    type,                       // 'weapon' | 'ammo' | 'medkit'
+    type,                       // 'weapon' | 'ammo' | 'medkit' | 'armor'
+    special: !!spot.special,    // supply-drop loot gets a light beam
     weaponId: weaponId ?? null,
     ammoType: spot.ammoType ?? 'rifle',
     x: spot.x + jitter, z: spot.z + jitter,
@@ -41,6 +42,11 @@ export class LootManager {
       if (!inventory.addMedkit()) return null;
       item.taken = true;
       return { type: 'medkit', item };
+    }
+    if (item.type === 'armor') {
+      if (!inventory.addArmor()) return null;
+      item.taken = true;
+      return { type: 'armor', item };
     }
     if (item.type === 'ammo') {
       if (!inventory.slots.length) return null;   // nothing to load

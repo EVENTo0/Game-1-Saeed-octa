@@ -7,6 +7,7 @@ export class Inventory {
     this.slots = [];           // WeaponInstance[]
     this.active = 0;
     this.medkits = 0;
+    this.armor = 0;
     this.maxSlots = CONFIG.match.maxWeapons;
   }
   get weapon() { return this.slots[this.active] ?? null; }
@@ -61,5 +62,11 @@ export class Inventory {
     this.active = (this.active + 1) % this.slots.length;
     return true;
   }
-  reset() { this.slots = []; this.active = 0; this.medkits = 0; }
+  /** A vest pickup refills armour to full; refused when already full. */
+  addArmor() {
+    if (this.armor >= CONFIG.armor.max) return false;
+    this.armor = CONFIG.armor.max;
+    return true;
+  }
+  reset() { this.slots = []; this.active = 0; this.medkits = 0; this.armor = 0; }
 }

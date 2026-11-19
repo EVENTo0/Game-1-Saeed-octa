@@ -497,6 +497,55 @@ async function main() {
   await sleep(300);
   ok('resume returns to play', await page.evaluate(() => globalThis.SAEED.game.state) === 'playing');
 
+  // ---------- v2.1: armour vest ----------
+  const vest = await page.evaluate(async () => {
+    const g = globalThis.SAEED.game;
+    const it = g.loot.items.find((i) => i.type === 'armor' && !i.taken);
+    g.player.inventory.armor = 0;
+    g.player.pos.x = it.x + 0.6; g.player.pos.z = it.z + 0.6;
+    await new Promise((r) => setTimeout(r, 300));
+    globalThis.SAEED.input.state.interact = true;
+    const deadline = performance.now() + 8000;
+    while (performance.now() < deadline && g.player.inventory.armor === 0) await new Promise((r) => setTimeout(r, 100));
+    const armor = g.player.inventory.armor;
+    const hp = g.player.health.value;
+    g.player.takeDamage(20);
+    return { armor, lost: hp - g.player.health.value, bar: !document.getElementById('armor-bar').classList.contains('empty') };
+  });
+  ok('an armour vest can be picked up', vest.armor > 0 && vest.bar, JSON.stringify(vest));
+  ok('armour soaks part of a hit', vest.lost > 0 && vest.lost < 20, `lost ${vest.lost}`);
+  await page.evaluate(() => { const g = globalThis.SAEED.game; g.player.health.value = g.player.health.max; });
+
+  // ---------- v2.1: supply drop ----------
+  const drop = await page.evaluate(async () => {
+    const g = globalThis.SAEED.game;
+    const before = g.loot.items.length;
+    g.matchTime = Math.max(g.matchTime, 50);
+    const t0 = performance.now();
+    while (performance.now() - t0 < 8000 && g.airdrop.state === 'idle') await new Promise((r) => setTimeout(r, 100));
+    const announced = g.airdrop.state === 'falling';
+    g.airdrop.pos.y = Math.min(g.airdrop.pos.y, g.airdrop.ground + 0.5);   // skip most of the fall
+    while (performance.now() - t0 < 20000 && g.airdrop.state !== 'landed') await new Promise((r) => setTimeout(r, 100));
+    return { announced, landed: g.airdrop.state === 'landed', added: g.loot.items.length - before,
+      special: g.loot.items.filter((i) => i.special).length };
+  });
+  ok('the supply drop is announced and falls', drop.announced, JSON.stringify(drop));
+  ok('the supply drop lands and opens into rare loot', drop.landed && drop.added === 4 && drop.special === 4, JSON.stringify(drop));
+
+  // ---------- v2.1: zone guidance ----------
+  const arrow = await page.evaluate(async () => {
+    const g = globalThis.SAEED.game;
+    const z = g.zone;
+    g.player.pos.x = z.center.x + z.radius + 25; g.player.pos.z = z.center.z; g.player.pos.y = 0;
+    await new Promise((r) => setTimeout(r, 400));
+    const visible = !document.getElementById('zone-arrow').classList.contains('hidden');
+    const dist = document.getElementById('zone-dist').textContent;
+    g.player.pos.x = z.center.x; g.player.pos.z = z.center.z;
+    g.player.health.value = g.player.health.max;
+    return { visible, dist };
+  });
+  ok('outside the zone an arrow shows the way back', arrow.visible && /^\d+m$/.test(arrow.dist), JSON.stringify(arrow));
+
   // ---------- victory ----------
   await page.evaluate(() => {
     const g = globalThis.SAEED.game;

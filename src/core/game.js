@@ -21,7 +21,8 @@ import { botShotDamage } from '../combat/botFire.js';
 import { buildWeaponModel } from '../weapons/weaponModels.js';
 import { WEAPONS } from '../weapons/weapons.js';
 import { SafeZone } from '../zone/zone.js';
-import { LootManager } from '../loot/loot.js';
+import { LootManager, makeLootItem } from '../loot/loot.js';
+import { Airdrop } from '../loot/airdrop.js';
 import { segmentBlocked } from '../world/collision.js';
 
 export const MatchState = { IDLE: 'idle', PLAYING: 'playing', PAUSED: 'paused', WON: 'won', LOST: 'lost' };
@@ -59,6 +60,7 @@ export class Game {
     this.bots = [];
     this.zone = new SafeZone(this.map.center);
     this.loot = new LootManager(this.map.lootSpots);
+    this.airdrop = new Airdrop();
     this.nearbyLoot = null;
     this.mansourNear = false;
     this._shotTargets = [];
@@ -172,6 +174,23 @@ export class Game {
     this.parachute = buildParachute();
     this.scene.add(this.parachute.root);
 
+    // supply drop: gold-banded crate under its own canopy
+    this.dropView = new THREE.Group();
+    const crateMat = new THREE.MeshStandardMaterial({ color: 0x3a2a66, roughness: 0.55, metalness: 0.2 });
+    const bandMat = new THREE.MeshStandardMaterial({ color: 0xe8bd47, roughness: 0.4, metalness: 0.5,
+      emissive: 0x5a4210, emissiveIntensity: 0.6 });
+    const crate = new THREE.Mesh(new THREE.BoxGeometry(1.3, 1.0, 1.3), crateMat);
+    crate.position.y = 0.5; crate.castShadow = true;
+    const band = new THREE.Mesh(new THREE.BoxGeometry(1.36, 0.18, 1.36), bandMat);
+    band.position.y = 0.5;
+    this.dropView.add(crate, band);
+    this.dropChute = buildParachute();
+    this.dropChute.root.scale.setScalar(0.8);
+    this.dropChute.root.position.y = -0.6;
+    this.dropView.add(this.dropChute.root);
+    this.dropView.visible = false;
+    this.scene.add(this.dropView);
+
     this.octa = buildOcta();
     this.scene.add(this.octa.root);
     this.octaMood = 0;
@@ -202,6 +221,8 @@ export class Game {
     this._streak = 0;
     this.playerAnim = new ProceduralAnimator(this.playerView.rig);
     this.zone.reset();
+    this.airdrop.reset();
+    this.dropView.visible = false;
     this.loot.reset(this.map.lootSpots);
     this.lootView.clear();
     this.lootView.sync(this.loot.items);
@@ -253,6 +274,7 @@ export class Game {
       return lang === 'ar' ? d.nameAr : d.nameEn;
     }
     if (item.type === 'medkit') return this.i18n.t('medkit');
+    if (item.type === 'armor') return this.i18n.t('armor');
     return this.i18n.t('ammo');
   }
 
@@ -336,6 +358,19 @@ export class Game {
       if (wasAlive && !bot.alive) this._onBotDeath(bot, 'zone');
     }
 
+    // --- supply drop ---
+    const ev = this.airdrop.update(dt, this.matchTime, this.zone, this.colliders, this.rng);
+    if (ev === 'incoming') {
+      this.hud.banner(this.i18n.t('airdropIncoming'), this.i18n.t('airdropSub'));
+      this.audio.zoneWarn();
+      haptics.zone();
+    } else if (ev === 'landed') {
+      for (const spot of this.airdrop.lootSpots()) this.loot.items.push(makeLootItem(spot));
+      this.lootView.sync(this.loot.items);
+      this.effects.impact({ x: this.airdrop.pos.x, y: this.airdrop.pos.y + 0.2, z: this.airdrop.pos.z }, false);
+      this.hud.toast(this.i18n.t('airdropLanded'), 'kill');
+    }
+
     // --- zone ---
     this.zone.update(dt);
     if (this.zone.state === 'shrinking' && this._zoneWarned !== this.zone.phase) {
@@ -390,6 +425,13 @@ export class Game {
       d = Math.atan2(Math.sin(d), Math.cos(d));
       p.yaw += d * Math.min(1, dt * 3);
       p.pitch = damp(p.pitch, -0.08, 3, dt);
+    }
+    const ad = this.airdrop;
+    this.dropView.visible = ad.active;
+    if (ad.active) {
+      this.dropView.position.set(ad.pos.x, ad.pos.y, ad.pos.z);
+      this.dropChute.root.visible = ad.state === 'falling';
+      if (ad.state === 'falling') this.dropView.rotation.y += dt * 0.4;
     }
     const chute = this.parachute.root;
     chute.visible = p.dropping && p.chute;
@@ -682,6 +724,8 @@ export class Game {
       if (res.replaced) this.loot.dropWeapon(res.replaced, item.x + 0.8, item.z + 0.8);
       this._equipWeaponModel();
       this.hud.toast(`${this.i18n.t('weaponFound')}: ${this.lootLabel(item)}`, 'kill');
+    } else if (res.type === 'armor') {
+      this.hud.toast(this.i18n.t('armorFound'), 'kill');
     } else if (res.type === 'ammo') {
       this.hud.toast(`+${res.amount} ${this.i18n.t('ammoFound')}`);
     } else {
