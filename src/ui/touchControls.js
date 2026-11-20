@@ -17,6 +17,9 @@ export class TouchControls {
     this.lookLast = { x: 0, y: 0 };
     this.lookMoved = 0;
     this.buttonTouches = new Map();   // pointerId -> button element
+    // Fire-and-look: dragging the thumb off the fire button keeps aiming, as
+    // in PUBG Mobile and CoD Mobile, so one thumb can shoot and track.
+    this.fireLook = null;             // { id, x, y }
 
     this.zone = root.querySelector('#joystick-zone');
     this.base = root.querySelector('#joystick-base');
@@ -30,14 +33,17 @@ export class TouchControls {
   }
   attach() {
     const opts = { passive: false };
-    this.root.addEventListener('pointerdown', this._onDown, opts);
+    // Listen on the whole document. The HUD is click-through (pointer-events:
+    // none) so a real finger on open screen lands on the canvas, never on the
+    // HUD element itself; a listener on the HUD only ever saw synthetic events.
+    document.addEventListener('pointerdown', this._onDown, { passive: false, capture: true });
     window.addEventListener('pointermove', this._onMove, opts);
     window.addEventListener('pointerup', this._onUp, opts);
     window.addEventListener('pointercancel', this._onUp, opts);
     return this;
   }
   dispose() {
-    this.root.removeEventListener('pointerdown', this._onDown);
+    document.removeEventListener('pointerdown', this._onDown, { capture: true });
     window.removeEventListener('pointermove', this._onMove);
     window.removeEventListener('pointerup', this._onUp);
     window.removeEventListener('pointercancel', this._onUp);
@@ -48,7 +54,7 @@ export class TouchControls {
     if (!on) this._releaseAll();
   }
   _releaseAll() {
-    this.joyId = null; this.lookId = null;
+    this.joyId = null; this.lookId = null; this.fireLook = null;
     this.input.touch.x = 0; this.input.touch.z = 0; this.input.touch.active = false;
     this.input.syncMove();
     this.buttonTouches.forEach((btn) => this._buttonUp(btn));
@@ -83,13 +89,17 @@ export class TouchControls {
 
   _onDown(e) {
     if (!this.enabled) return;
+    if (e.pointerType === 'mouse') return;          // a mouse is InputManager's job
     const btn = this._buttonAt(e.target);
     if (btn) {
       e.preventDefault();
       this.buttonTouches.set(e.pointerId, btn);
       this._buttonDown(btn);
+      if (btn.dataset.action === 'fire') this.fireLook = { id: e.pointerId, x: e.clientX, y: e.clientY };
       return;
     }
+    // other controls (pause, menus) keep their own taps
+    if (e.target?.closest?.('button, a, input, select, label')) return;
     const inJoyZone = this.zone && this._inRect(this.zone, e.clientX, e.clientY);
     if (inJoyZone && this.joyId === null) {
       e.preventDefault();
@@ -136,12 +146,29 @@ export class TouchControls {
       const dy = e.clientY - this.lookLast.y;
       this.lookLast = { x: e.clientX, y: e.clientY };
       this.lookMoved += Math.hypot(dx, dy);
-      this.input.state.lookDX += dx * LOOK_SENS * this.input.sensitivity;
-      this.input.state.lookDY += dy * LOOK_SENS * this.input.sensitivity;
+      this._addLook(dx, dy);
+    } else if (this.fireLook && e.pointerId === this.fireLook.id) {
+      e.preventDefault();
+      const dx = e.clientX - this.fireLook.x, dy = e.clientY - this.fireLook.y;
+      this.fireLook.x = e.clientX; this.fireLook.y = e.clientY;
+      this._addLook(dx, dy);
     }
+  }
+  /**
+   * Touch look with a gentle response curve: slow drags stay precise for
+   * aiming, fast flicks turn quickly, and aiming down sights slows it further.
+   */
+  _addLook(dx, dy) {
+    const speed = Math.hypot(dx, dy);
+    const accel = 1 + Math.min(1.2, Math.max(0, speed - 6) * 0.045);
+    const ads = this.input.state.aim ? 0.55 : 1;
+    const k = LOOK_SENS * this.input.sensitivity * accel * ads;
+    this.input.state.lookDX += dx * k;
+    this.input.state.lookDY += dy * k * 0.85;
   }
   _onUp(e) {
     const btn = this.buttonTouches.get(e.pointerId);
+    if (this.fireLook && e.pointerId === this.fireLook.id) this.fireLook = null;
     if (btn) { this._buttonUp(btn); this.buttonTouches.delete(e.pointerId); return; }
     if (e.pointerId === this.joyId) {
       this.joyId = null;

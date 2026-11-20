@@ -37,6 +37,7 @@ if (profile.data.skin !== 'classic') game.setSkin(skinById(profile.data.skin));
 game.dynamicResolution = !navigator.webdriver;
 
 const touchMode = isTouchDevice();
+input.mouseEnabled = !touchMode;
 // Aim assist exists to make up for a thumb on glass; a mouse does not need it.
 game.aimAssistEnabled = touchMode && prefs.assist !== false;
 setHaptics(prefs.haptics !== false);

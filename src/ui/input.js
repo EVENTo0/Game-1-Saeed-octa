@@ -21,6 +21,7 @@ export class InputManager {
     this.touch = { x: 0, z: 0, active: false };
     this.sensitivity = 1.0;
     this.enabled = false;
+    this.mouseEnabled = true;     // off on touch devices: taps also emit compat mouse events
     this._bound = [];
   }
   /** Merge keyboard + touch sticks, clamped to the unit disc. */
@@ -105,7 +106,7 @@ export class InputManager {
     let lastX = 0, lastY = 0;
 
     const onMove = (e) => {
-      if (!this.enabled) return;
+      if (!this.enabled || !this.mouseEnabled) return;
       if (document.pointerLockElement === canvas) {
         s.lookDX += (e.movementX || 0) * 0.0022 * this.sensitivity;
         s.lookDY += (e.movementY || 0) * 0.0022 * this.sensitivity;
@@ -118,7 +119,7 @@ export class InputManager {
       }
     };
     const onDown = (e) => {
-      if (!this.enabled) return;
+      if (!this.enabled || !this.mouseEnabled) return;
       dragActive = true;
       lastX = e.clientX;
       lastY = e.clientY;

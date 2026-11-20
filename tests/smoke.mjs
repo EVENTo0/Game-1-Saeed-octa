@@ -126,6 +126,14 @@ async function main() {
   }, null, { timeout: 90000 }).then(() => true).catch(() => false);
   ok('Saeed opens the canopy and lands', landed);
   ok('bots held fire during the drop', await page.evaluate(() => globalThis.SAEED.game.player.health.value) === 100);
+  // UI checks below take real time under software rendering; park the bots at
+  // the map edge so a wandering bot cannot end the round mid-suite. The AI
+  // check later brings one back on purpose.
+  await page.evaluate(() => {
+    const g = globalThis.SAEED.game;
+    g.bots.forEach((b, i) => { b.pos.x = -100 + i * 4; b.pos.z = -100; b.lastKnown = null; });
+    g.freezeBots = true;
+  });
   ok('loot is placed around the map', await page.evaluate(() => globalThis.SAEED.game.loot.remaining) >= 15);
   await page.screenshot({ path: `${SHOTS}04-ingame.png` });
 
@@ -180,21 +188,36 @@ async function main() {
   await page.evaluate(() => window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, bubbles: true })));
   await page.screenshot({ path: `${SHOTS}05-touch-move.png` });
 
-  // look drag on the right half rotates the camera
-  const yaw0 = await page.evaluate(() => globalThis.SAEED.game.player.yaw);
+  // Look with REAL touches. CDP Input.dispatchTouchEvent is hit-tested like a
+  // finger; synthetic events dispatched onto #hud hid a bug where the
+  // click-through HUD never received real touches, so phones could not look.
+  const cdp = await phone.newCDPSession(page);
+  const finger = async (points, id = 11) => {
+    const [x0, y0] = points[0];
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: x0, y: y0, id }] });
+    for (const [x, y] of points.slice(1)) {
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y, id }] });
+      await sleep(40);
+    }
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await sleep(250);
+  };
   const vp = page.viewportSize();
-  const lx = vp.width * 0.75, ly = vp.height * 0.25;
-  await page.dispatchEvent('#hud', 'pointerdown', { pointerId: 2, clientX: lx, clientY: ly, isPrimary: true, pointerType: 'touch', bubbles: true });
-  for (let i = 1; i <= 6; i++) {
-    await page.evaluate(([x, y]) => window.dispatchEvent(new PointerEvent('pointermove',
-      { pointerId: 2, clientX: x, clientY: y, bubbles: true })), [lx - i * 16, ly]);
-    await sleep(50);
-  }
-  await page.evaluate(() => window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 2, bubbles: true })));
-  await sleep(200);
+  // open screen between the minimap and the button cluster
+  const lx = vp.width * 0.56, ly = vp.height * 0.28;
+  const hitLook = await page.evaluate(([x, y]) => {
+    const el = document.elementFromPoint(x, y);
+    return !el.closest('button');
+  }, [lx, ly]);
+  ok('the look area is open screen, not a button', hitLook);
+  const yaw0 = await page.evaluate(() => globalThis.SAEED.game.player.yaw);
+  await finger(Array.from({ length: 9 }, (_, i) => [lx - i * 16, ly]));
   const yaw1 = await page.evaluate(() => globalThis.SAEED.game.player.yaw);
-  ok('drag on the right side turns the camera', Math.abs(yaw1 - yaw0) > 0.1, `Δyaw ${(yaw1 - yaw0).toFixed(3)}`);
+  ok('a real finger drag turns the camera', Math.abs(yaw1 - yaw0) > 0.1, `Δyaw ${(yaw1 - yaw0).toFixed(3)}`);
   ok('dragging left turns the view left (yaw increases)', yaw1 > yaw0);
+  await finger(Array.from({ length: 9 }, (_, i) => [lx - 100 + i * 16, ly]));
+  const yaw2 = await page.evaluate(() => globalThis.SAEED.game.player.yaw);
+  ok('dragging right turns the view right', yaw2 < yaw1, `Δyaw ${(yaw2 - yaw1).toFixed(3)}`);
 
   // the model must face away from the chase camera (regression: it faced the lens)
   const facing = await page.evaluate(() => {
@@ -206,16 +229,26 @@ async function main() {
 
   // dragging the thumb up looks up
   const pitch0 = await page.evaluate(() => globalThis.SAEED.game.player.pitch);
-  await page.dispatchEvent('#hud', 'pointerdown', { pointerId: 4, clientX: lx, clientY: ly + 80, isPrimary: true, pointerType: 'touch', bubbles: true });
-  for (let i = 1; i <= 5; i++) {
-    await page.evaluate(([x, y]) => window.dispatchEvent(new PointerEvent('pointermove',
-      { pointerId: 4, clientX: x, clientY: y, bubbles: true })), [lx, ly + 80 - i * 12]);
-    await sleep(50);
-  }
-  await page.evaluate(() => window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 4, bubbles: true })));
-  await sleep(200);
+  await finger(Array.from({ length: 6 }, (_, i) => [lx, ly + 90 - i * 14]));
   const pitch1 = await page.evaluate(() => globalThis.SAEED.game.player.pitch);
   ok('dragging the thumb up looks up', pitch1 > pitch0 + 0.05, `Δpitch ${(pitch1 - pitch0).toFixed(3)}`);
+
+  // fire-and-look: a drag that starts on the fire button shoots and aims
+  // aim at the sky so the test burst cannot hit (and aggro) a bot
+  await page.evaluate(() => { globalThis.SAEED.game.player.pitch = 0.7; });
+  const fb = await page.locator('[data-action="fire"]').boundingBox();
+  const fy0 = await page.evaluate(() => globalThis.SAEED.game.player.yaw);
+  const fs0 = await page.evaluate(() => globalThis.SAEED.game.stats.shots);
+  const fx = fb.x + fb.width / 2, fyy = fb.y + fb.height / 2;
+  await finger(Array.from({ length: 10 }, (_, i) => [fx - i * 12, fyy]), 12);
+  const fire = await page.evaluate(([y, s]) => ({ dYaw: globalThis.SAEED.game.player.yaw - y,
+    shots: globalThis.SAEED.game.stats.shots - s }), [fy0, fs0]);
+  ok('dragging from the fire button shoots and turns', fire.shots > 0 && Math.abs(fire.dYaw) > 0.1, JSON.stringify(fire));
+  await page.evaluate(() => {
+    const g = globalThis.SAEED.game;
+    g.player.pitch = 0; g.player.health.value = g.player.health.max;
+    const w = g.player.inventory.weapon; if (w) { w.mag = w.def.magSize; w.reloadTimer = 0; }
+  });
 
   // action buttons
   const tapBtn = async (action) => {
@@ -350,9 +383,10 @@ async function main() {
     const beforeKits = g.player.inventory.medkits;
     globalThis.SAEED.input.state.interact = true;
     await new Promise((r) => setTimeout(r, 200));
-    return { prompt, beforeKits, afterKits: g.player.inventory.medkits, taken: item.taken };
+    return { prompt, beforeKits, afterKits: g.player.inventory.medkits, taken: item.taken,
+      state: g.state, hp: Math.round(g.player.health.value) };
   });
-  ok('walking onto loot shows the التقاط prompt', pickedUp.prompt);
+  ok('walking onto loot shows the التقاط prompt', pickedUp.prompt, JSON.stringify(pickedUp));
   ok('INTERACT picks the med kit up', pickedUp.afterKits === pickedUp.beforeKits + 1 && pickedUp.taken);
 
   // ---------- weapon pickup + switch ----------
@@ -394,6 +428,7 @@ async function main() {
   ok('med kit restores health', healed.after > healed.before, `${healed.before} → ${healed.after}`);
 
   // ---------- combat vs a bot ----------
+  await page.evaluate(() => { globalThis.SAEED.game.freezeBots = false; });
   const combat = await page.evaluate(async () => {
     const g = globalThis.SAEED.game;
     const bot = g.bots.find((b) => b.alive);
@@ -464,8 +499,10 @@ async function main() {
   // ---------- zone ----------
   const zone = await page.evaluate(async () => {
     const g = globalThis.SAEED.game;
-    const r0 = g.zone.radius;
     g.zone.phase = 0; g.zone.state = 'shrinking'; g.zone.timer = 0;
+    // measure from after the reset: the ring may already have been shrinking
+    await new Promise((r) => setTimeout(r, 250));
+    const r0 = g.zone.radius;
     await new Promise((r) => setTimeout(r, 1400));
     const r1 = g.zone.radius;
     // stand well outside and take ring damage

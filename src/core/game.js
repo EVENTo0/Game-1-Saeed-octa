@@ -353,7 +353,7 @@ export class Game {
     };
     for (const bot of this.bots) {
       const wasAlive = bot.alive;
-      bot.update(dt, botCtx);
+      if (!this.freezeBots) bot.update(dt, botCtx);   // QA switch, never set in play
       bot.visibleToPlayer = bot.alive && this._playerCanSee(bot);
       if (wasAlive && !bot.alive) this._onBotDeath(bot, 'zone');
     }
