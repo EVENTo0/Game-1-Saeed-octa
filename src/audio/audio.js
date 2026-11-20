@@ -48,6 +48,8 @@ export class AudioSystem {
       rifle: { f: 180, decay: 0.13, gain: 0.35 },
       shotgun: { f: 110, decay: 0.26, gain: 0.5 },
       marksman: { f: 90, decay: 0.42, gain: 0.55 },
+      smg: { f: 230, decay: 0.09, gain: 0.28 },
+      dmr: { f: 120, decay: 0.3, gain: 0.48 },
       melee: { f: 400, decay: 0.09, gain: 0.25 },
     }[weaponClass] ?? { f: 180, decay: 0.13, gain: 0.35 };
 

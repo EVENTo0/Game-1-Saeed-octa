@@ -67,6 +67,7 @@ function goMenu() {
   hud.show(false);
   setPlaying(false);
   syncLangButtons();
+  game.planRoute();
   renderLobby();
   guardInput($('menu'));
 }
@@ -110,7 +111,7 @@ function renderLobby() {
 // Drop zone: null = auto (a random spot inside the first zone)
 let dropPoint = null;
 const dropCanvas = $('drop-map');
-const MAP_HALF = 110;
+const MAP_HALF = game.map.half ?? 110;
 
 function drawDropMap() {
   const ctx = dropCanvas.getContext('2d');
@@ -127,8 +128,35 @@ function drawDropMap() {
     ctx.fillStyle = c.top > 2.5 ? '#5a4330' : '#8d7150';
     ctx.fillRect(px(c.x - c.hw), pz(c.z - c.hd), Math.max(1, c.hw * 2 * k), Math.max(1, c.hd * 2 * k));
   }
-  ctx.strokeStyle = 'rgba(122,92,255,.9)'; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.arc(px(0), pz(0), CONFIG.zone.phases[0].radius * k, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = '#9a8566';
+  for (const p of game.map.props) {
+    if (p.kind !== 'road') continue;
+    ctx.save(); ctx.strokeStyle = '#a08a68'; ctx.lineWidth = Math.max(1, 6 * k);
+    ctx.beginPath(); ctx.moveTo(px(p.x1), pz(p.z1)); ctx.lineTo(px(p.x2), pz(p.z2)); ctx.stroke(); ctx.restore();
+  }
+  // flight path with the plane's direction
+  const r = game.route;
+  if (r) {
+    ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]);
+    ctx.beginPath(); ctx.moveTo(px(r.from.x), pz(r.from.z)); ctx.lineTo(px(r.to.x), pz(r.to.z)); ctx.stroke();
+    ctx.setLineDash([]);
+    const hx = px(r.to.x - r.dir.x * 90), hz = pz(r.to.z - r.dir.z * 90), a = Math.atan2(r.dir.z, r.dir.x);
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.moveTo(hx + Math.cos(a) * 7, hz + Math.sin(a) * 7);
+    ctx.lineTo(hx + Math.cos(a + 2.5) * 6, hz + Math.sin(a + 2.5) * 6);
+    ctx.lineTo(hx + Math.cos(a - 2.5) * 6, hz + Math.sin(a - 2.5) * 6); ctx.fill();
+  }
+  // location names
+  ctx.font = `600 ${Math.max(8, Math.round(W / 26))}px system-ui, sans-serif`;
+  ctx.textAlign = 'center';
+  for (const p of game.map.pois ?? []) {
+    const label = lang() === 'ar' ? p.nameAr : p.nameEn;
+    ctx.fillStyle = 'rgba(20,14,38,.75)';
+    const tw = ctx.measureText(label).width + 6;
+    ctx.fillRect(px(p.x) - tw / 2, pz(p.z) - 7, tw, 13);
+    ctx.fillStyle = '#f0d488';
+    ctx.fillText(label, px(p.x), pz(p.z) + 3);
+  }
   if (dropPoint) {
     const x = px(dropPoint.x), y = pz(dropPoint.z);
     ctx.fillStyle = '#e8bd47'; ctx.strokeStyle = '#150f28'; ctx.lineWidth = 2;
@@ -147,11 +175,7 @@ dropCanvas.addEventListener('pointerdown', (e) => {
   drawDropMap();
 });
 
-function autoDrop() {
-  const a = Math.random() * Math.PI * 2;
-  const r = 12 + Math.random() * CONFIG.zone.phases[0].radius * 0.6;
-  return { x: Math.cos(a) * r, z: Math.sin(a) * r };
-}
+
 
 /** Swallow stray taps for a moment after a screen appears under the finger. */
 function guardInput(el, ms = 300) {
@@ -175,7 +199,7 @@ function startMatch() {
   hud.showMansour(false);
   hud.clearFeedback();
   uiState = 'playing';
-  game.startMatch({ drop: dropPoint ?? autoDrop() });
+  game.startMatch({ drop: dropPoint, route: game.route });
   coach.start();
   setPlaying(true);
   if (!touchMode) canvas.requestPointerLock?.();
@@ -287,6 +311,8 @@ $('btn-lose-menu').addEventListener('click', goMenu);
 
 // med-kit button is inside the HUD, wired through the same input state
 $('btn-heal').addEventListener('click', () => { input.state.use = true; });
+// plane jump / open canopy: one big button, works for touch and mouse
+$('btn-eject').addEventListener('click', () => { input.state.jump = true; });
 
 // language
 function syncLangButtons() {
@@ -364,8 +390,8 @@ const coach = {
     const p = game.player;
     this.timer += dt;
     if (this.stage === 'steer') {
-      hud.hint(this.key('hintSteer'));
-      if (!p.dropping) { this.stage = 'move'; this.mark = { ...p.pos }; this.timer = 0; }
+      hud.hint(p.inPlane ? this.key('planeHint') : this.key('hintSteer'));
+      if (!p.dropping && !p.inPlane) { this.stage = 'move'; this.mark = { ...p.pos }; this.timer = 0; }
     } else if (this.stage === 'move') {
       hud.hint(this.key('hintMove'));
       if (Math.hypot(p.pos.x - this.mark.x, p.pos.z - this.mark.z) > 3) { this.stage = 'look'; this.yaw0 = p.yaw; }
@@ -393,6 +419,7 @@ function frame(now) {
   const cmd = input.consume();
   game.update(dt, cmd);
   coach.update(dt);
+  input.lookScale = game.lookScale();
   if (uiState === 'playing') game.adaptResolution(fps || 60, dt);
   if (uiState === 'playing' || uiState === 'won' || uiState === 'lost') hud.update(game);
   game.render();
@@ -409,4 +436,6 @@ requestAnimationFrame(frame);
 goSplash();
 
 // Expose for the smoke test / debugging — not used by gameplay.
-globalThis.SAEED = { game, input, hud, i18n, profile, startMatch, goMenu, pauseMatch, resumeMatch, setDrop: (p) => { dropPoint = p; drawDropMap(); } };
+globalThis.SAEED = { game, input, hud, i18n, profile, startMatch, goMenu, pauseMatch, resumeMatch, setDrop: (p, { routeThrough = true } = {}) => {
+    dropPoint = p; if (p && routeThrough) game.planRoute(p); drawDropMap();
+  } };

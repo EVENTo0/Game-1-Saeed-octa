@@ -30,7 +30,9 @@ export class Player {
     this.moving = false;
     this.healTimer = 0;
     this.dropping = false;
+    this.inPlane = false;
     this.chute = false;
+    this.concealed = false;
     this.justLanded = false;
     this.health.reset();
     this.inventory.reset();
@@ -50,9 +52,10 @@ export class Player {
     };
   }
   /** Begin the match-start skydive above (x, z). */
-  startDrop(x, z, height = CONFIG.drop.height) {
+  startDrop(x, z, height = CONFIG.drop.height, carry = { x: 0, z: 0 }) {
     this.pos = { x, y: height, z };
-    this.vel = { x: 0, y: -CONFIG.drop.freefallSpeed * 0.5, z: 0 };
+    this.vel = { x: carry.x, y: -CONFIG.drop.freefallSpeed * 0.5, z: carry.z };
+    this.inPlane = false;
     this.dropping = true;
     this.chute = false;
     this.grounded = false;
@@ -69,6 +72,7 @@ export class Player {
     this.justLanded = false;            // one-frame event; cleared even when dead
     if (!this.alive) { this.moving = false; this.speed = 0; return; }
 
+    if (this.inPlane) { this.speed = 0; this.moving = false; return; }   // the Game moves the plane
     if (this.dropping) { this._updateDrop(dt, input, colliders); return; }
 
     this.aiming = !!input.aim;
@@ -135,20 +139,33 @@ export class Player {
     this.moving = this.speed > 0.35;
   }
 
+  /**
+   * Freefall and canopy. Jump opens the canopy early (longer glide); without
+   * stick input and with a marked landing spot, the fall steers toward it.
+   */
   _updateDrop(dt, input, colliders) {
     const D = CONFIG.drop;
     const P = CONFIG.player;
     this.aiming = false;
     this.crouching = false;
     const ground = groundHeightAt(this.pos.x, this.pos.z, colliders, this.pos.y + P.stepHeight, P.stepHeight, P.radius);
-    if (!this.chute && this.pos.y - ground < D.chuteAt) this.chute = true;
+    if (!this.chute && (this.pos.y - ground < D.chuteAt || (input.jump && this.pos.y - ground > 8))) this.chute = true;
 
     const ix = clamp(input.moveX ?? 0, -1, 1);
     const iz = clamp(input.moveZ ?? 0, -1, 1);
     const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
     const glide = this.chute ? D.glideChute : D.glideFree;
-    const tx = (ix * cos - iz * sin) * glide;
-    const tz = (-ix * sin - iz * cos) * glide;
+    let tx = (ix * cos - iz * sin) * glide;
+    let tz = (-ix * sin - iz * cos) * glide;
+    const target = this.dropTarget;
+    if (target && Math.hypot(ix, iz) < 0.05) {
+      const dx = target.x - this.pos.x, dz = target.z - this.pos.z;
+      const d = Math.hypot(dx, dz);
+      if (d > 1) {
+        const v = Math.min(glide, d * 0.8);
+        tx = (dx / d) * v; tz = (dz / d) * v;
+      }
+    }
     this.vel.x = damp(this.vel.x, tx, 3, dt);
     this.vel.z = damp(this.vel.z, tz, 3, dt);
     this.vel.y = damp(this.vel.y, -(this.chute ? D.chuteSpeed : D.freefallSpeed), this.chute ? 4 : 2, dt);

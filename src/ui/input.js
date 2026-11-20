@@ -108,8 +108,9 @@ export class InputManager {
     const onMove = (e) => {
       if (!this.enabled || !this.mouseEnabled) return;
       if (document.pointerLockElement === canvas) {
-        s.lookDX += (e.movementX || 0) * 0.0022 * this.sensitivity;
-        s.lookDY += (e.movementY || 0) * 0.0022 * this.sensitivity;
+        const k = 0.0022 * this.sensitivity * (this.lookScale ?? 1);
+        s.lookDX += (e.movementX || 0) * k;
+        s.lookDY += (e.movementY || 0) * k;
       } else if (dragActive) {
         // Fallback drag-to-look when pointer lock is unavailable or pending
         s.lookDX += (e.clientX - lastX) * 0.0022 * this.sensitivity;

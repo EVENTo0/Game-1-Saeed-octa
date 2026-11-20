@@ -23,6 +23,8 @@ export class HUD {
       damageNums: $('damage-numbers'), hitmarker: $('hitmarker'),
       killFeed: $('kill-feed'), banner: $('elim-banner'),
       bannerTitle: $('elim-title'), bannerSub: $('elim-sub'),
+      scope: $('scope'),
+      eject: $('btn-eject'), ejectLabel: $('eject-label'), conceal: $('conceal-chip'),
       armorBar: $('armor-bar'), armorFill: $('armor-fill'),
       zoneArrow: $('zone-arrow'), zoneArrowIcon: $('zone-arrow-icon'), zoneDist: $('zone-dist'),
       hint: $('coach-hint'), dropChip: $('drop-chip'), dropAlt: $('drop-alt'),
@@ -192,13 +194,23 @@ export class HUD {
     // enemies
     this.el.enemies.textContent = String(game.aliveBots);
 
-    // skydive altitude
+    // plane and skydive
     if (this.el.dropChip) {
-      this.el.dropChip.classList.toggle('hidden', !p.dropping);
-      if (p.dropping) {
+      this.el.dropChip.classList.toggle('hidden', !(p.dropping || p.inPlane));
+      if (p.inPlane) this.el.dropAlt.textContent = t('inPlane');
+      else if (p.dropping) {
         this.el.dropAlt.textContent = `${Math.max(0, Math.round(p.pos.y))}m · ${p.chute ? t('chuteOpen') : t('freefall')}`;
       }
     }
+    if (this.el.eject) {
+      const canChute = p.dropping && !p.chute && p.pos.y > 12;
+      this.el.eject.classList.toggle('hidden', !(p.inPlane || canChute));
+      this.el.ejectLabel.textContent = p.inPlane ? t('jumpNow') : t('openChute');
+    }
+    this.el.conceal?.classList.toggle('hidden', !p.concealed);
+    const scoped = !!p.scopeFov;
+    this.el.scope?.classList.toggle('hidden', !scoped);
+    this.el.crosshair?.classList.toggle('hidden', scoped);
 
     // zone
     const z = game.zone;
@@ -264,6 +276,17 @@ export class HUD {
       if (Math.hypot(dx, dz) > c) continue;
       ctx.fillRect(dx - 1.2, dz - 1.2, 2.4, 2.4);
     }
+    // flight path while on the plane or falling
+    if (game.route && (game.player.inPlane || game.player.dropping)) {
+      ctx.strokeStyle = 'rgba(232,189,71,.85)'; ctx.lineWidth = 2; ctx.setLineDash([4, 3]);
+      ctx.beginPath(); ctx.moveTo(wx(game.route.from.x), wz(game.route.from.z));
+      ctx.lineTo(wx(game.route.to.x), wz(game.route.to.z)); ctx.stroke(); ctx.setLineDash([]);
+    }
+    if (game.dropTarget && (game.player.inPlane || game.player.dropping)) {
+      ctx.fillStyle = '#e8bd47';
+      ctx.beginPath(); ctx.arc(wx(game.dropTarget.x), wz(game.dropTarget.z), 3.5, 0, Math.PI * 2); ctx.fill();
+    }
+
     // supply drop: public information, always marked
     const ad = game.airdrop;
     if (ad?.active) {

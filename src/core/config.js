@@ -24,7 +24,8 @@ export const CONFIG = {
   camera: {
     distance: 5.0,
     aimDistance: 2.6,
-    dropDistance: 7.5,
+    dropDistance: 8.5,
+    planeDistance: 34,
     height: 1.75,
     shoulder: 0.95,
     minPitch: -1.15,
@@ -35,18 +36,21 @@ export const CONFIG = {
     lerp: 14,
   },
   bots: {
-    count: 5,
+    count: 9,             // ten players a match on the 520 m map
     maxHealth: 100,
     radius: 0.45,
     viewRange: 62,
     fovCos: -0.15,        // ~100 deg half-cone (dot threshold)
-    awarenessRange: 18,   // inside this, the bot notices the player regardless of facing
+    awarenessRange: 18,
+    concealedRange: 7,
+    lootTime: [45, 100],  // seconds a bot spends looting its landing spot
+    rivalRange: 62,       // bots spot each other as far as they spot you    // spotting range for a player crouched in a bush   // inside this, the bot notices the player regardless of facing
     walkSpeed: 3.0,
     chaseSpeed: 5.0,
     fireInterval: 0.55,
     burst: 3,
-    reactionTime: 0.45,
-    accuracy: 0.72,       // 0..1 chance the shot is "aimed"
+    reactionTime: 0.6,
+    accuracy: 0.56,       // 0..1 chance the shot is "aimed"; tuned for 10 players (tests/balance.mjs)
     damage: 9,
     loseSightTime: 3.5,
   },
@@ -56,12 +60,16 @@ export const CONFIG = {
     // instead of meeting anyone: shortening it to 172s doubled that player's
     // win rate (7.5% -> 15.0%) and pulled median match length 122s -> 93s,
     // with no measurable effect on an aggressive player.
-    startRadius: 118,
+    // v2.2: the map grew from 220 m to 520 m. The first wait is long enough
+    // to loot after landing; later rings close faster so a match lands in the
+    // 5-7 minute window of mobile battle royales.
+    startRadius: 330,
     phases: [
-      { wait: 28, shrink: 26, radius: 70, dps: 2 },
-      { wait: 22, shrink: 22, radius: 40, dps: 4 },
-      { wait: 20, shrink: 20, radius: 18, dps: 7 },
-      { wait: 16, shrink: 18, radius: 7,  dps: 11 },
+      { wait: 50, shrink: 40, radius: 190, dps: 2 },
+      { wait: 35, shrink: 32, radius: 110, dps: 3 },
+      { wait: 28, shrink: 26, radius: 60, dps: 5 },
+      { wait: 22, shrink: 22, radius: 28, dps: 8 },
+      { wait: 16, shrink: 18, radius: 9, dps: 12 },
     ],
   },
   aim: {
@@ -76,14 +84,17 @@ export const CONFIG = {
   },
 
   drop: {
-    // Skydive at match start: a short freefall, then the canopy opens. Kept
-    // brief (~5s) because the point is a choice of landing, not a cutscene.
-    height: 80,
-    freefallSpeed: 26,
-    chuteSpeed: 7.5,
-    chuteAt: 24,          // metres above ground where the canopy opens
-    glideFree: 10,        // horizontal steering speed in freefall
-    glideChute: 6,
+    // Match start: ride the plane, jump where you like, freefall, then glide
+    // under the canopy. About 15 s from jump to touchdown and up to ~170 m of
+    // travel, so the landing spot is a real choice.
+    planeHeight: 170,
+    planeSpeed: 42,
+    height: 170,
+    freefallSpeed: 24,
+    chuteSpeed: 6,
+    chuteAt: 45,          // metres above ground where the canopy opens on its own
+    glideFree: 17,        // horizontal steering speed in freefall
+    glideChute: 9,
   },
 
   armor: {
@@ -92,7 +103,7 @@ export const CONFIG = {
   },
   airdrop: {
     // One supply drop per match, announced, falling slowly enough to race for.
-    at: 50,               // match seconds when it is announced
+    at: 110,              // match seconds when it is announced
     height: 70,
     fallSpeed: 4.5,
     loot: ['weapon:SAEED_50', 'armor', 'medkit', 'ammo'],
@@ -102,7 +113,7 @@ export const CONFIG = {
     pickupRange: 2.4,
   },
   match: {
-    spawnGrace: 3.0,      // seconds at the start of a round where bots hold fire
+    spawnGrace: 4.0,      // seconds at the start of a round where bots hold fire
     maxWeapons: 2,
     maxMedkits: 3,
     medkitHeal: 45,

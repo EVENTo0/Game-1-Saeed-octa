@@ -20,10 +20,11 @@ export class LootManager {
     this.items = spots.map((s) => makeLootItem(s));
   }
   /** Nearest un-taken item within pickup range of (x,z). */
-  nearest(x, z, range = CONFIG.loot.pickupRange) {
+  nearest(x, z, range = CONFIG.loot.pickupRange, y = null) {
     let best = null, bestD = range;
     for (const it of this.items) {
       if (it.taken) continue;
+      if (y !== null && Math.abs((it.ground ?? 0) - y) > 2.2) continue;   // a rock top is not in reach from below
       const d = Math.hypot(it.x - x, it.z - z);
       if (d < bestD) { bestD = d; best = it; }
     }

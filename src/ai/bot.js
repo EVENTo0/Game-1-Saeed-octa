@@ -44,15 +44,22 @@ export class Bot {
     this.health.reset();
     this.weapon = new WeaponInstance(this.weapon.id);
     this.lastKnown = null;
+    this.rival = null;
+    this.scanIn = 0;
+    // Like a real player: loot the landing spot first, then rotate to the zone.
+    this.age = 0;
+    this.lootUntil = CONFIG.bots.lootTime[0] + this.rng() * (CONFIG.bots.lootTime[1] - CONFIG.bots.lootTime[0]);
   }
   get alive() { return this.health.alive; }
   get chest() { return { x: this.pos.x, y: this.pos.y + this.height * 0.62, z: this.pos.z }; }
   get eye() { return { x: this.pos.x, y: this.pos.y + this.height * 0.85, z: this.pos.z }; }
 
-  canSee(targetChest, colliders) {
+  canSee(targetChest, colliders, concealed = false) {
     const dx = targetChest.x - this.pos.x, dz = targetChest.z - this.pos.z;
     const d = Math.hypot(dx, dz);
     if (d > CONFIG.bots.viewRange) return false;
+    // crouched in a bush you are only spotted from close up
+    if (concealed && d > CONFIG.bots.concealedRange) return false;
     // Outside close range the bot only notices what is in front of it; up close
     // it "hears" the player, otherwise a wandering bot can stand with its back
     // to you indefinitely.
@@ -66,31 +73,69 @@ export class Bot {
   }
 
   pickWanderTarget(zone) {
-    const c = zone ? zone.center : { x: 0, z: 0 };
-    const r = zone ? zone.radius * 0.8 : 80;
+    let c, r;
+    if (this.age < this.lootUntil) {
+      c = this.spawn; r = 22;                                  // search the home location
+    } else {
+      // head for the NEXT safe circle, so bots converge as the zone closes
+      c = zone ? (zone.targetCenter ?? zone.center) : { x: 0, z: 0 };
+      r = zone ? Math.min(zone.radius, zone.targetRadius ?? zone.radius) * 0.75 : 80;
+    }
     const a = this.rng() * Math.PI * 2;
     const rad = Math.sqrt(this.rng()) * r;
     this.target = { x: c.x + Math.cos(a) * rad, z: c.z + Math.sin(a) * rad };
     this.retargetIn = 4 + this.rng() * 5;
   }
 
+  /** Nearest rival bot in range and in sight, or null. */
+  _pickRival(rivals, colliders) {
+    let best = null, bd = CONFIG.bots.rivalRange;
+    for (const r of rivals) {
+      if (r === this || !r.alive) continue;
+      const d = Math.hypot(r.pos.x - this.pos.x, r.pos.z - this.pos.z);
+      if (d < bd && this.canSee(r.chest, colliders)) { bd = d; best = r; }
+    }
+    return best;
+  }
+
   /**
-   * @param {object} ctx {player, colliders, zone, dt, time, onShoot(bot, dir)}
+   * @param {object} ctx {player, rivals, colliders, zone, dt, time, onShoot(bot, accurate, d), onShootBot(bot, rival, accurate, d)}
    */
   update(dt, ctx) {
     if (!this.alive) { this.state = BotState.DEAD; this.moving = false; return; }
     const B = CONFIG.bots;
     const { player, colliders, zone } = ctx;
     this.weapon.update(dt);
+    this.age += dt;
     this.fireTimer = Math.max(0, this.fireTimer - dt);
     this.retargetIn -= dt;
 
     const playerAlive = player && player.alive;
-    const sees = playerAlive && this.canSee(player.chest, colliders);
+    const seesPlayer = playerAlive && !player.inPlane && !player.dropping && this.canSee(player.chest, colliders, player.concealed);
+
+    // Other bots are enemies too: everyone fights everyone, as in any battle
+    // royale. Scan for rivals a few times a second, not every frame.
+    this.scanIn -= dt;
+    if (ctx.rivals && this.scanIn <= 0) {
+      this.scanIn = 0.45 + this.rng() * 0.2;
+      this.rival = this._pickRival(ctx.rivals, colliders);
+    }
+    if (this.rival && (!this.rival.alive || Math.hypot(this.rival.pos.x - this.pos.x, this.rival.pos.z - this.pos.z) > B.rivalRange * 1.3)) this.rival = null;
+
+    // Neutral targeting: fight whichever enemy is nearer, player or bot.
+    let foe = null;
+    if (seesPlayer) foe = player;
+    if (this.rival) {
+      const dr = Math.hypot(this.rival.pos.x - this.pos.x, this.rival.pos.z - this.pos.z);
+      const dp = seesPlayer ? Math.hypot(player.pos.x - this.pos.x, player.pos.z - this.pos.z) : Infinity;
+      if (dr < dp) foe = this.rival;
+    }
+    if (foe !== this.foe) { this.sightTimer = 0; this.foe = foe; }
+    const sees = !!foe;
     if (sees) {
       this.sightTimer += dt;
       this.lostTimer = 0;
-      this.lastKnown = { x: player.pos.x, z: player.pos.z };
+      if (foe === player) this.lastKnown = { x: player.pos.x, z: player.pos.z };
     } else {
       this.sightTimer = 0;
       this.lostTimer += dt;
@@ -102,9 +147,9 @@ export class Bot {
       this.state = BotState.FLEE_ZONE;
       this.target = safe;
     } else if (sees) {
-      const d = Math.hypot(player.pos.x - this.pos.x, player.pos.z - this.pos.z);
+      const d = Math.hypot(foe.pos.x - this.pos.x, foe.pos.z - this.pos.z);
       this.state = d < 26 ? BotState.ENGAGE : BotState.CHASE;
-      this.target = { x: player.pos.x, z: player.pos.z };
+      this.target = { x: foe.pos.x, z: foe.pos.z };
     } else if (this.lastKnown && this.lostTimer < B.loseSightTime) {
       this.state = BotState.CHASE;
       this.target = this.lastKnown;
@@ -146,7 +191,7 @@ export class Bot {
 
     // face the player when engaging, else face movement
     if (sees) {
-      const fx = player.pos.x - this.pos.x, fz = player.pos.z - this.pos.z;
+      const fx = foe.pos.x - this.pos.x, fz = foe.pos.z - this.pos.z;
       this.yaw = Math.atan2(-fx, -fz);
     } else if (this.moving) {
       this.yaw = Math.atan2(-this.vel.x, -this.vel.z);
@@ -185,14 +230,15 @@ export class Bot {
     // --- shooting ---
     if (this.weapon.needsReload() && this.weapon.mag === 0) this.weapon.startReload();
     if (sees && this.sightTimer >= B.reactionTime && !this.weapon.reloading && !ctx.holdFire) {
-      const d = Math.hypot(player.pos.x - this.pos.x, player.pos.z - this.pos.z);
+      const d = Math.hypot(foe.pos.x - this.pos.x, foe.pos.z - this.pos.z);
       if (d <= this.weapon.def.range * 0.8 && this.fireTimer <= 0) {
         if (this.burstLeft <= 0) this.burstLeft = B.burst;
         if (this.weapon.fire()) {
           this.burstLeft -= 1;
           this.fireTimer = this.burstLeft > 0 ? this.weapon.shotInterval : B.fireInterval + this.rng() * 0.4;
           const accurate = this.rng() < B.accuracy * clamp(1 - d / (B.viewRange * 1.4), 0.25, 1);
-          ctx.onShoot?.(this, accurate, d);
+          if (foe === player) ctx.onShoot?.(this, accurate, d);
+          else ctx.onShootBot?.(this, foe, accurate, d);
         } else if (this.weapon.mag === 0) {
           this.weapon.startReload();
         }

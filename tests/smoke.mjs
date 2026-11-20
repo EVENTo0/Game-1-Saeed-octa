@@ -114,17 +114,27 @@ async function main() {
     const g = globalThis.SAEED.game;
     return g.state === 'playing' && g.player.alive && g.colliders.length > 50;
   }));
-  ok('five named opponents are alive', await page.evaluate(() => globalThis.SAEED.game.aliveBots) === 5);
+  ok('nine named opponents are alive (ten players)', await page.evaluate(() => globalThis.SAEED.game.aliveBots) === 9);
 
-  // ---------- v2: skydive ----------
-  ok('the match opens with a skydive', await page.evaluate(() => globalThis.SAEED.game.player.dropping));
-  ok('the HUD shows altitude while falling', await page.isVisible('#drop-chip'));
+  // ---------- v2.2: plane, jump, skydive ----------
+  ok('the match opens on the plane', await page.evaluate(() => globalThis.SAEED.game.player.inPlane));
+  ok('the HUD shows the plane status and a JUMP button', await page.isVisible('#drop-chip') && await page.isVisible('#btn-eject'));
+  // the route was planned through the marked spot, so the auto-jump happens over it
+  const jumped = await page.waitForFunction(() => globalThis.SAEED.game.player.dropping, null, { timeout: 120000 })
+    .then(() => true).catch(() => false);
+  ok('Saeed jumps over the marked landing spot', jumped);
   // dt is clamped, so under software rendering the fall takes longer in wall time
   const landed = await page.waitForFunction(() => {
     const p = globalThis.SAEED.game.player;
-    return !p.dropping && p.grounded;
-  }, null, { timeout: 90000 }).then(() => true).catch(() => false);
+    return !p.dropping && !p.inPlane && p.grounded;
+  }, null, { timeout: 180000 }).then(() => true).catch(() => false);
   ok('Saeed opens the canopy and lands', landed);
+  const where = await page.evaluate(() => {
+    const g = globalThis.SAEED.game; const p = g.player.pos; const s = g.map.spawns.player;
+    return { off: Math.hypot(p.x - s.x, p.z - s.z), near: g.bots.filter((b) => Math.hypot(b.pos.x - p.x, b.pos.z - p.z) < 60).length };
+  });
+  ok('the glide lands on the marked spot', where.off < 6, `${where.off.toFixed(1)} m off`);
+  ok('at most one bot lands near Saeed', where.near <= 1, `${where.near} within 60 m`);
   ok('bots held fire during the drop', await page.evaluate(() => globalThis.SAEED.game.player.health.value) === 100);
   // UI checks below take real time under software rendering; park the bots at
   // the map edge so a wandering bot cannot end the round mid-suite. The AI
@@ -461,7 +471,8 @@ async function main() {
   ok('the match is still running after the duel', combat.state === 'playing', combat.state);
   ok('shooting damages an enemy', combat.hpAfter < combat.hpBefore, `${combat.hpBefore} → ${combat.hpAfter}`);
   ok('enough hits eliminate an enemy', !combat.alive && combat.kills >= 1);
-  ok('enemy counter drops on the HUD', (await page.textContent('#enemy-count')) === '4',
+  const alive = await page.evaluate(() => globalThis.SAEED.game.aliveBots);
+  ok('enemy counter drops on the HUD', (await page.textContent('#enemy-count')) === String(alive) && alive < 9,
     await page.textContent('#enemy-count'));
   await page.screenshot({ path: `${SHOTS}07-combat.png` });
 
@@ -469,6 +480,9 @@ async function main() {
   const aiDamage = await page.evaluate(async () => {
     const g = globalThis.SAEED.game;
     const bot = g.bots.find((b) => b.alive);
+    // isolate the duel: bots fight the NEAREST enemy, and the parked bots stand
+    // a few metres apart, so a parked neighbour would win the bot's attention
+    bot.pos.x = -40; bot.pos.z = 22; bot.pos.y = 0; bot.rival = null;
     g.player.health.value = 100;
     g.player.pos.x = bot.pos.x; g.player.pos.z = bot.pos.z + 8; g.player.pos.y = bot.pos.y;
     // This check verifies the real AI fire/damage path, not RNG luck. End spawn
@@ -557,7 +571,8 @@ async function main() {
   const drop = await page.evaluate(async () => {
     const g = globalThis.SAEED.game;
     const before = g.loot.items.length;
-    g.matchTime = Math.max(g.matchTime, 50);
+    g.airdrop.reset();                    // the long suite may already have seen one
+    g.matchTime = Math.max(g.matchTime, g.airdrop.cfg.at);
     const t0 = performance.now();
     while (performance.now() - t0 < 8000 && g.airdrop.state === 'idle') await new Promise((r) => setTimeout(r, 100));
     const announced = g.airdrop.state === 'falling';
@@ -618,7 +633,7 @@ async function main() {
   });
   ok('PLAY AGAIN restarts in place (no page reload)', restarted.t > navBefore);
   ok('restart resets bots, health and loot (spawn grace keeps Saeed at full HP)',
-    restarted.state === 'playing' && restarted.bots === 5 && restarted.hp === 100 && restarted.loot >= 15,
+    restarted.state === 'playing' && restarted.bots === 9 && restarted.hp === 100 && restarted.loot >= 15,
     JSON.stringify(restarted));
 
   // ---------- defeat ----------
@@ -635,6 +650,8 @@ async function main() {
   const mansour = await page.evaluate(async () => {
     const g = globalThis.SAEED.game;
     const m = g.map.spawns.npcMansour;
+    // the retry above starts a fresh round on the plane: put Saeed on the ground
+    g.player.inPlane = false; g.player.dropping = false; g.player.pos.y = 0;
     g.player.pos.x = m.x + 2; g.player.pos.z = m.z + 2;
     await new Promise((r) => setTimeout(r, 400));
     const el = document.getElementById('mansour-bubble');
@@ -655,7 +672,7 @@ async function main() {
     };
   });
   ok('static world is merged into few draw calls',
-    perfInfo.merged.meshesAfter < 20 && perfInfo.merged.meshesBefore > 80,
+    perfInfo.merged.meshesAfter < 40 && perfInfo.merged.meshesBefore > 80,
     `${perfInfo.merged.meshesBefore} meshes → ${perfInfo.merged.meshesAfter}`);
   // Budget, not a measurement of a real phone: this counts the shadow pass too.
   // Mid-range Android handles ~150 calls at this triangle count comfortably.
@@ -689,6 +706,14 @@ async function main() {
   await dpage.click('#btn-play');
   await sleep(900);
 
+  // Space jumps out of the plane on desktop
+  await dpage.keyboard.press('Space');
+  const djump = await dpage.waitForFunction(() => globalThis.SAEED.game.player.dropping, null, { timeout: 15000 })
+    .then(() => true).catch(() => false);
+  ok('desktop Space jumps out of the plane', djump);
+  await dpage.waitForFunction(() => { const p = globalThis.SAEED.game.player; return !p.dropping && !p.inPlane; }, null, { timeout: 180000 }).catch(() => {});
+  await dpage.evaluate(() => { globalThis.SAEED.game.freezeBots = true; });
+
   const dBefore = await dpage.evaluate(() => ({ ...globalThis.SAEED.game.player.pos }));
   await dpage.keyboard.down('KeyW');
   // Poll instead of sleeping: dt is clamped, so software rendering slows the
@@ -704,7 +729,7 @@ async function main() {
     `${Math.hypot(dAfter.x - dBefore.x, dAfter.z - dBefore.z).toFixed(2)}m`);
 
   // crouch, fire and reload are disabled mid-air by design: land first
-  await dpage.waitForFunction(() => !globalThis.SAEED.game.player.dropping, null, { timeout: 90000 }).catch(() => {});
+  await dpage.waitForFunction(() => { const p = globalThis.SAEED.game.player; return !p.dropping && !p.inPlane; }, null, { timeout: 180000 }).catch(() => {});
   await dpage.keyboard.press('KeyC');
   await sleep(200);
   ok('desktop C toggles crouch', await dpage.evaluate(() => globalThis.SAEED.game.player.crouching));

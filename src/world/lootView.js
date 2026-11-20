@@ -8,77 +8,114 @@ const COLORS = {
 };
 const keyFor = (it) => (it.type === 'weapon' ? `weapon_${WEAPONS[it.weaponId]?.rarity ?? 'common'}` : it.type);
 const isBeamed = (it) => it.special || keyFor(it) === 'weapon_epic';
+const MAX_PER_KEY = 128;
 
-/** Instanced-free but shared-geometry loot pickups: a glowing crate + halo. */
+/**
+ * Loot pickups drawn as instanced meshes: one crate batch and one halo batch
+ * per colour, whatever the item count. The 520 m map carries ~100 items and
+ * drawing them one by one cost more draw calls than the whole world.
+ */
 export class LootView {
   constructor(scene) {
     this.scene = scene;
     this.geo = new THREE.BoxGeometry(0.42, 0.42, 0.42);
-    this.haloGeo = new THREE.RingGeometry(0.42, 0.52, 14);
+    this.haloGeo = new THREE.RingGeometry(0.42, 0.52, 14).rotateX(-Math.PI / 2);
     // open-ended, additive light pillar: visible from across the map
     this.beamGeo = new THREE.CylinderGeometry(0.16, 0.34, 14, 10, 1, true);
     this.beamGeo.translate(0, 7, 0);
-    this.mats = Object.fromEntries(Object.entries(COLORS).map(([k, c]) =>
-      [k, new THREE.MeshLambertMaterial({ color: c, emissive: c, emissiveIntensity: 0.35 })]));
-    this.haloMats = Object.fromEntries(Object.entries(COLORS).map(([k, c]) =>
-      [k, new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.45, side: THREE.DoubleSide })]));
-    this.beamMats = Object.fromEntries(Object.entries(COLORS).map(([k, c]) =>
-      [k, new THREE.MeshBasicMaterial({
-        color: c, transparent: true, opacity: 0.32, side: THREE.DoubleSide,
-        blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
-      })]));
     this.group = new THREE.Group();
     scene.add(this.group);
-    this.entries = new Map();
+    this.batches = {};
+    for (const [k, c] of Object.entries(COLORS)) {
+      const mat = new THREE.MeshLambertMaterial({ color: c, emissive: c, emissiveIntensity: 0.35 });
+      const haloMat = new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false });
+      const beamMat = new THREE.MeshBasicMaterial({
+        color: c, transparent: true, opacity: 0.32, side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+      });
+      const boxes = new THREE.InstancedMesh(this.geo, mat, MAX_PER_KEY);
+      const halos = new THREE.InstancedMesh(this.haloGeo, haloMat, MAX_PER_KEY);
+      boxes.castShadow = true;
+      boxes.count = 0; halos.count = 0;
+      boxes.frustumCulled = false; halos.frustumCulled = false;   // instances span the map
+      this.group.add(boxes, halos);
+      this.batches[k] = { boxes, halos, mat, haloMat, beamMat, items: [] };
+    }
+    this.beams = new Map();          // item id -> beam mesh (few: epic + supply drop)
+    this.items = [];
+    this._m = new THREE.Matrix4();
+    this._q = new THREE.Quaternion();
+    this._s = new THREE.Vector3();
+    this._p = new THREE.Vector3();
+    this._up = new THREE.Vector3(0, 1, 0);
   }
+
   sync(items) {
+    this.items = items;
+    for (const b of Object.values(this.batches)) b.items.length = 0;
     for (const it of items) {
-      let e = this.entries.get(it.id);
-      if (!e) {
-        const g = new THREE.Group();
-        const key = keyFor(it);
-        const box = new THREE.Mesh(this.geo, this.mats[key]);
-        box.position.y = 0.45;
-        box.castShadow = true;
-        const halo = new THREE.Mesh(this.haloGeo, this.haloMats[key]);
-        halo.rotation.x = -Math.PI / 2;
-        halo.position.y = 0.06;
-        g.add(box); g.add(halo);
-        const beamed = isBeamed(it);
-        if (beamed) g.add(new THREE.Mesh(this.beamGeo, this.beamMats[key]));
-        g.position.set(it.x, it.y ?? 0, it.z);
-        this.group.add(g);
-        e = { group: g, box, beamed };
-        this.entries.set(it.id, e);
+      if (it.taken) {
+        const beam = this.beams.get(it.id);
+        if (beam) beam.visible = false;
+        continue;
       }
-      e.taken = it.taken;
-      if (it.taken) e.group.visible = false;
+      const b = this.batches[keyFor(it)];
+      if (b && b.items.length < MAX_PER_KEY) b.items.push(it);
+      if (isBeamed(it) && !this.beams.has(it.id)) {
+        const beam = new THREE.Mesh(this.beamGeo, this.batches[keyFor(it)].beamMat);
+        beam.position.set(it.x, it.y ?? 0, it.z);
+        this.group.add(beam);
+        this.beams.set(it.id, beam);
+      }
     }
   }
-  /** Loot beyond `range` is hidden: it is a few pixels tall and costs two
-   *  draw calls each, which is real money on a phone. */
+
+  /** Loot beyond `range` is hidden (beamed loot carries three times as far). */
   update(dt, t, viewer = null, range = 55) {
-    for (const [id, e] of this.entries) {
-      if (e.taken) continue;
-      if (viewer) {
-        const d = Math.hypot(e.group.position.x - viewer.x, e.group.position.z - viewer.z);
-        e.group.visible = d < (e.beamed ? range * 3 : range);
+    const m = this._m, q = this._q, sc = this._s, p = this._p;
+    for (const b of Object.values(this.batches)) {
+      let n = 0;
+      for (const it of b.items) {
+        const far = viewer && Math.hypot(it.x - viewer.x, it.z - viewer.z) > (isBeamed(it) ? range * 3 : range);
+        if (far) continue;
+        const y = it.y ?? 0;
+        q.setFromAxisAngle(this._up, t * 1.4 + it.x);
+        p.set(it.x, y + 0.45 + Math.sin(t * 2.4 + it.x) * 0.09, it.z);
+        sc.set(1, 1, 1);
+        m.compose(p, q, sc);
+        b.boxes.setMatrixAt(n, m);
+        q.identity();
+        p.set(it.x, y + 0.06, it.z);
+        m.compose(p, q, sc);
+        b.halos.setMatrixAt(n, m);
+        n++;
       }
-      if (!e.group.visible) continue;
-      e.box.rotation.y += dt * 1.4;
-      e.box.position.y = 0.45 + Math.sin(t * 2.4 + e.group.position.x) * 0.09;
+      b.boxes.count = n; b.halos.count = n;
+      b.boxes.visible = n > 0; b.halos.visible = n > 0;
+      b.boxes.instanceMatrix.needsUpdate = true;
+      b.halos.instanceMatrix.needsUpdate = true;
+    }
+    if (viewer) {
+      for (const [id, beam] of this.beams) {
+        const it = this.items.find((i) => i.id === id);
+        beam.visible = !!it && !it.taken && Math.hypot(beam.position.x - viewer.x, beam.position.z - viewer.z) < range * 3;
+      }
     }
   }
+
   clear() {
-    for (const e of this.entries.values()) this.group.remove(e.group);
-    this.entries.clear();
+    for (const b of Object.values(this.batches)) { b.items.length = 0; b.boxes.count = 0; b.halos.count = 0; }
+    for (const beam of this.beams.values()) this.group.remove(beam);
+    this.beams.clear();
   }
+
   dispose() {
     this.clear();
     this.scene.remove(this.group);
     this.geo.dispose(); this.haloGeo.dispose(); this.beamGeo.dispose();
-    Object.values(this.beamMats).forEach((m) => m.dispose());
-    Object.values(this.mats).forEach((m) => m.dispose());
-    Object.values(this.haloMats).forEach((m) => m.dispose());
+    for (const b of Object.values(this.batches)) {
+      b.boxes.dispose(); b.halos.dispose();
+      b.mat.dispose(); b.haloMat.dispose(); b.beamMat.dispose();
+    }
   }
 }

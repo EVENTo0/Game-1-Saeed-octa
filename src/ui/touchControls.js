@@ -161,7 +161,7 @@ export class TouchControls {
   _addLook(dx, dy) {
     const speed = Math.hypot(dx, dy);
     const accel = 1 + Math.min(1.2, Math.max(0, speed - 6) * 0.045);
-    const ads = this.input.state.aim ? 0.55 : 1;
+    const ads = (this.input.state.aim ? 0.55 : 1) * (this.input.lookScale ?? 1);
     const k = LOOK_SENS * this.input.sensitivity * accel * ads;
     this.input.state.lookDX += dx * k;
     this.input.state.lookDY += dy * k * 0.85;

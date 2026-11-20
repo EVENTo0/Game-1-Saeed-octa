@@ -17,6 +17,7 @@
 
 <!-- ============ IN-GAME HUD ============ -->
 <div id="hud" class="screen hidden" aria-hidden="true">
+  <div id="scope" class="hidden" aria-hidden="true"><i class="sc-h"></i><i class="sc-v"></i><i class="sc-dot"></i></div>
   <div id="crosshair"><span></span><span></span><span></span><span></span></div>
 
   <div class="hud-top">
@@ -97,6 +98,8 @@
   </div>
 
   <button id="btn-pause" class="corner-btn" aria-label="pause">❚❚</button>
+  <button id="btn-eject" class="eject-btn hidden" type="button"><span id="eject-label">قفز</span></button>
+  <div id="conceal-chip" class="hidden" aria-hidden="true">👁 <span data-i18n="concealed">مختبئ</span></div>
 </div>
 
 <!-- ============ SPLASH ============ -->
@@ -124,7 +127,7 @@
     </div>
     <button class="menu-btn primary play" id="btn-play">
       <span data-i18n="play">ابدأ</span>
-      <small data-i18n="modeSolo">فردي · 6 لاعبين · خريطة الواحة</small>
+      <small data-i18n="modeSolo">فردي · 10 لاعبين · جزيرة سعيد</small>
     </button>
     <div class="lobby-row">
       <button class="menu-btn" id="btn-settings" data-i18n="settings">الإعدادات</button>

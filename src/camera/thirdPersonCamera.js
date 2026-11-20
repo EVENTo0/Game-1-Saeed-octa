@@ -20,14 +20,16 @@ export class ThirdPersonCamera {
   update(dt, player, colliders) {
     const C = CONFIG.camera;
     const aiming = player.aiming;
-    const wantDist = player.dropping ? C.dropDistance : aiming ? C.aimDistance : C.distance;
-    const wantFov = aiming ? C.aimFov : C.fov;
-    this.distance = damp(this.distance, wantDist, 10, dt);
+    const wantDist = player.inPlane ? C.planeDistance : player.dropping ? C.dropDistance : aiming ? C.aimDistance : C.distance;
+    const scoped = player.scopeFov ?? 0;
+    const wantFov = scoped || (aiming ? C.aimFov : C.fov);
+    // through the scope the camera sits at the eye: first person
+    this.distance = scoped ? 0.02 : damp(this.distance, wantDist, 10, dt);
     this.camera.fov = damp(this.camera.fov, wantFov, 10, dt);
     this.camera.updateProjectionMatrix();
 
     const focusY = player.pos.y + player.height * (player.crouching ? 1.05 : 0.95);
-    const shoulder = aiming ? C.shoulder : C.shoulder * 0.55;
+    const shoulder = scoped ? 0 : aiming ? C.shoulder : C.shoulder * 0.55;
     const sin = Math.sin(player.yaw), cos = Math.cos(player.yaw);
     // right vector for the shoulder offset
     const rx = cos, rz = -sin;
@@ -78,7 +80,13 @@ export class ThirdPersonCamera {
       this.shake = Math.max(0, this.shake - dt * 3.2);
     }
     this.camera.position.set(px, py, pz);
-    this.camera.lookAt(focus.x, focus.y + 0.25, focus.z);
+    if (scoped) {
+      // first person through the scope: look exactly along the aim direction
+      const a = player.aimDir();
+      this.camera.lookAt(px + a.x * 10, py + a.y * 10, pz + a.z * 10);
+    } else {
+      this.camera.lookAt(focus.x, focus.y + 0.25, focus.z);
+    }
   }
   resize(aspect) {
     this.camera.aspect = aspect;

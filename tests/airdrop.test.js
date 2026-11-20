@@ -72,3 +72,23 @@ describe('Airdrop', () => {
     expect(spots.every((s) => s.special && Math.hypot(s.x - 10, s.z + 5) < 2)).toBe(true);
   });
 });
+
+describe('Plane route', async () => {
+  const { planRoute, routePoint, closestT, overMap } = await import('../src/world/flight.js');
+  const seq = () => { let i = 0; const v = [0.13, 0.62, 0.41, 0.88]; return () => v[i++ % v.length]; };
+
+  it('crosses the whole map near the middle', () => {
+    const r = planRoute(seq(), 260);
+    const mid = routePoint(r, 0.5);
+    expect(Math.hypot(mid.x, mid.z)).toBeLessThanOrEqual(260 * 0.35 + 1e-6);
+    const { first, last } = overMap(r, 260);
+    expect(last - first).toBeGreaterThan(0.5);
+  });
+
+  it('can be forced over a point, and finds the closest approach', () => {
+    const p = { x: -40, z: 40 };
+    const r = planRoute(seq(), 260, p);
+    const q = routePoint(r, closestT(r, p));
+    expect(Math.hypot(q.x - p.x, q.z - p.z)).toBeLessThan(1e-6);
+  });
+});

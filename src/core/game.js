@@ -23,7 +23,20 @@ import { WEAPONS } from '../weapons/weapons.js';
 import { SafeZone } from '../zone/zone.js';
 import { LootManager, makeLootItem } from '../loot/loot.js';
 import { Airdrop } from '../loot/airdrop.js';
+import { planRoute, routePoint, closestT, overMap } from '../world/flight.js';
+import { buildPlane } from '../world/planeView.js';
 import { segmentBlocked } from '../world/collision.js';
+
+/** Highest solid surface under a point that loot can rest on (not roofs or walls). */
+function lootGround(x, z, colliders) {
+  let top = 0;
+  for (const c of colliders) {
+    if (c.tag !== 'ground' && c.tag !== 'stair' && c.tag !== 'tower') continue;
+    if (Math.abs(x - c.x) > c.hw || Math.abs(z - c.z) > c.hd) continue;
+    if (c.top > top) top = c.top;
+  }
+  return top;
+}
 
 export const MatchState = { IDLE: 'idle', PLAYING: 'playing', PAUSED: 'paused', WON: 'won', LOST: 'lost' };
 
@@ -75,6 +88,9 @@ export class Game {
     this._streak = 0;
     this._proj = new THREE.Vector3();
     this.skin = null;
+    this.route = null;
+    this.planeT = 0;
+    this.dropTarget = null;
     this.pixelRatioMax = Math.min(window.devicePixelRatio || 1, (QUALITY[quality] ?? QUALITY.med).pixelRatio);
     this.pixelRatio = this.pixelRatioMax;
     this._resTimer = 0;
@@ -191,6 +207,10 @@ export class Game {
     this.dropView.visible = false;
     this.scene.add(this.dropView);
 
+    this.plane = buildPlane();
+    this.plane.root.visible = false;
+    this.scene.add(this.plane.root);
+
     this.octa = buildOcta();
     this.scene.add(this.octa.root);
     this.octaMood = 0;
@@ -206,15 +226,46 @@ export class Game {
   }
 
   // ---------------------------------------------------------------- match
-  /** @param {{drop?: {x:number, z:number} | null}} [opts] */
+  /** A fresh flight path for the lobby map to show before the match. */
+  planRoute(through = null) {
+    this.route = planRoute(this.rng, this.map.half ?? 110, through);
+    return this.route;
+  }
+
+  /**
+   * @param {{drop?: {x:number, z:number} | null, route?: object, ground?: boolean}} [opts]
+   *   drop: marked landing spot (auto-jump near it, glide toward it); route:
+   *   the flight path shown in the lobby; ground: skip the plane (dev/test).
+   */
   startMatch(opts = {}) {
     this.matchTime = 0;
     this.player.reset();
     this.player.pos.x = this.map.spawns.player.x;
     this.player.pos.z = this.map.spawns.player.z;
-    if (opts.drop) this.player.startDrop(opts.drop.x, opts.drop.z);
+    this.dropTarget = opts.drop ?? null;
+    if (opts.ground) {
+      this.player.pos.x = opts.drop?.x ?? this.player.pos.x;
+      this.player.pos.z = opts.drop?.z ?? this.player.pos.z;
+      this.route = null;
+      this.plane.root.visible = false;
+    } else {
+      this.route = opts.route ?? this.route ?? planRoute(this.rng, this.map.half ?? 110);
+      const span = overMap(this.route, this.map.half ?? 110);
+      this.planeT = span.first;
+      this.planeEnd = span.last;
+      // auto-jump over the marked spot, or somewhere along the middle of the route
+      this.jumpAt = this.dropTarget
+        ? Math.min(span.last, Math.max(span.first, closestT(this.route, this.dropTarget)))
+        : span.first + (span.last - span.first) * (0.3 + this.rng() * 0.4);
+      const p0 = routePoint(this.route, this.planeT);
+      this.player.inPlane = true;
+      this.player.pos = { x: p0.x, y: CONFIG.drop.planeHeight, z: p0.z };
+      this.player.yaw = Math.atan2(-this.route.dir.x, -this.route.dir.z);
+      this.player.pitch = -0.35;
+      this.plane.root.visible = true;
+    }
     // Spawn protection is counted from touchdown, so a long glide never eats it.
-    this._landedAt = opts.drop ? Infinity : 0;
+    this._landedAt = opts.ground ? 0 : Infinity;
     this.stats = Game.freshStats();
     this.killer = null;
     this._lastKillAt = -99;
@@ -224,6 +275,7 @@ export class Game {
     this.airdrop.reset();
     this.dropView.visible = false;
     this.loot.reset(this.map.lootSpots);
+    this._groundLoot(this.loot.items);
     this.lootView.clear();
     this.lootView.sync(this.loot.items);
     this._zoneWarned = -1;
@@ -237,7 +289,7 @@ export class Game {
     // bots
     this.bots.forEach((b) => b.reset());
     if (this.bots.length === 0) {
-      const loadouts = ['OCTA_AR', 'DESERT_CLAW', 'OCTA_AR', 'SAEED_50', 'OCTA_AR'];
+      const loadouts = ['OCTA_AR', 'SARB_9', 'DESERT_CLAW', 'OCTA_AR', 'SAQR_DMR', 'SARB_9', 'OCTA_AR', 'SAEED_50', 'DESERT_CLAW'];
       this.map.spawns.bots.slice(0, CONFIG.bots.count).forEach((s, i) => {
         const bot = new Bot({ ...s, weaponId: loadouts[i % loadouts.length] });
         this.bots.push(bot);
@@ -249,11 +301,53 @@ export class Game {
         this.botViews.push({ view, anim, weapon: wm });
       });
     }
+    // A different layout every match: each bot takes a random location.
+    const cands = [...(this.map.spawns.botCandidates ?? this.map.spawns.bots)];
+    for (let i = cands.length - 1; i > 0; i--) { const j = Math.floor(this.rng() * (i + 1)); [cands[i], cands[j]] = [cands[j], cands[i]]; }
+    this.bots.forEach((b, i) => {
+      const c = cands[i % cands.length];
+      b.spawn = { x: c.x, z: c.z };
+      b.pos.x = c.x; b.pos.z = c.z; b.pos.y = 0;
+      b.target = { x: c.x, z: c.z };
+    });
     this.bots.forEach((b) => { b.visibleToPlayer = false; });
     this.botViews.forEach(({ view }) => { view.root.visible = true; });
 
     this.state = MatchState.PLAYING;
     this.events.emit('match:start');
+  }
+
+  _groundLoot(items) {
+    for (const it of items) { it.ground = lootGround(it.x, it.z, this.colliders); it.y = it.ground; }
+  }
+
+  /**
+   * After touchdown, keep the landing fair: at most one bot within 60 m, the
+   * rest move to locations further out (they have not been seen yet).
+   */
+  _spreadBotsFrom(p) {
+    const cands = this.map.spawns.botCandidates ?? [];
+    let near = 0;
+    for (const b of this.bots) {
+      if (!b.alive) continue;
+      if (Math.hypot(b.pos.x - p.x, b.pos.z - p.z) >= 60) continue;
+      if (near++ === 0) continue;                         // one rival nearby is fair game
+      const far = cands.filter((c) => Math.hypot(c.x - p.x, c.z - p.z) > 110
+        && !this.bots.some((o) => o !== b && Math.hypot(o.pos.x - c.x, o.pos.z - c.z) < 20));
+      const c = far[Math.floor(this.rng() * far.length)];
+      if (!c) continue;
+      b.pos.x = c.x; b.pos.z = c.z; b.spawn = { x: c.x, z: c.z }; b.target = { x: c.x, z: c.z };
+    }
+  }
+
+  /** Named location under a point, for the landing call-out. */
+  locationAt(x, z) {
+    let best = null, bd = Infinity;
+    for (const p of this.map.pois ?? []) {
+      const d = Math.hypot(x - p.x, z - p.z);
+      if (d < p.r + 15 && d < bd) { bd = d; best = p; }
+    }
+    return best;
   }
 
   _equipWeaponModel() {
@@ -303,16 +397,42 @@ export class Game {
       this.assistTargetId = a.targetId;
     }
 
+    // --- plane ---
+    let pin = input;
+    if (this.player.inPlane) {
+      this.planeT += (CONFIG.drop.planeSpeed * dt) / this.route.length;
+      const q = routePoint(this.route, this.planeT);
+      this.player.pos.x = q.x; this.player.pos.z = q.z; this.player.pos.y = CONFIG.drop.planeHeight;
+      if (input.jump || this.planeT >= this.jumpAt) {
+        const carry = { x: this.route.dir.x * 14, z: this.route.dir.z * 14 };
+        this.player.startDrop(q.x, q.z, CONFIG.drop.planeHeight - 4, carry);
+        this.player.dropTarget = this.dropTarget;
+        this.player.pitch = -0.6;
+        pin = { ...input, jump: false };                  // the jump tap must not also open the canopy
+        this.audio.zoneWarn();
+        this.events.emit('player:jumped');
+      }
+    } else if (this.route && this.planeT <= 1.05) {
+      this.planeT += (CONFIG.drop.planeSpeed * dt) / this.route.length;   // the plane flies on
+    }
+
     // --- movement / physics ---
-    this.player.update(dt, input, this.colliders);
+    this.player.update(dt, pin, this.colliders);
+    const held = this.player.inventory.weapon;
+    this.player.scopeFov = this.player.aiming && held?.def.scope && !held.reloading ? held.def.scope.fov : 0;
+    this.player.concealed = this.player.crouching && (this.map.bushes ?? []).some(
+      (b) => Math.hypot(b.x - this.player.pos.x, b.z - this.player.pos.z) < b.r + 0.4);
     if (this.player.justLanded) {
       this._landedAt = this.matchTime;
       this.effects.impact({ x: this.player.pos.x, y: this.player.pos.y + 0.1, z: this.player.pos.z }, false);
       this.cam.addShake(0.3);
       this.audio.pickup();
       haptics.hitDealt();
-      this.hud.toast(this.i18n.t('landed'), 'kill');
-      this.events.emit('player:landed');
+      this._spreadBotsFrom(this.player.pos);
+      const loc = this.locationAt(this.player.pos.x, this.player.pos.z);
+      const name = loc ? (this.i18n.lang === 'ar' ? loc.nameAr : loc.nameEn) : '';
+      this.hud.toast(name ? `${this.i18n.t('landed')} — ${name}` : this.i18n.t('landed'), 'kill');
+      this.events.emit('player:landed', { location: loc?.id ?? null });
     }
 
     // --- weapon ---
@@ -340,7 +460,8 @@ export class Game {
     }
 
     // --- loot ---
-    this.nearbyLoot = this.player.dropping ? null : this.loot.nearest(this.player.pos.x, this.player.pos.z);
+    this.nearbyLoot = (this.player.dropping || this.player.inPlane) ? null
+      : this.loot.nearest(this.player.pos.x, this.player.pos.z, undefined, this.player.pos.y);
     if (input.interact && this.nearbyLoot) this._pickup(this.nearbyLoot);
 
     // --- bots ---
@@ -348,8 +469,10 @@ export class Game {
       player: this.player, colliders: this.colliders, zone: this.zone, time: this.time,
       // Brief spawn protection so the round does not open with the player being
       // shot before they have even looked around.
-      holdFire: this.player.dropping || this.matchTime - this._landedAt < CONFIG.match.spawnGrace,
+      holdFire: this.player.inPlane || this.player.dropping || this.matchTime - this._landedAt < CONFIG.match.spawnGrace,
       onShoot: (bot, accurate, dist) => this._botShoot(bot, accurate, dist),
+      rivals: this.bots,
+      onShootBot: (bot, rival, accurate, dist) => this._botShootBot(bot, rival, accurate, dist),
     };
     for (const bot of this.bots) {
       const wasAlive = bot.alive;
@@ -365,7 +488,9 @@ export class Game {
       this.audio.zoneWarn();
       haptics.zone();
     } else if (ev === 'landed') {
-      for (const spot of this.airdrop.lootSpots()) this.loot.items.push(makeLootItem(spot));
+      const fresh = this.airdrop.lootSpots().map((spot) => makeLootItem(spot));
+      this._groundLoot(fresh);
+      this.loot.items.push(...fresh);
       this.lootView.sync(this.loot.items);
       this.effects.impact({ x: this.airdrop.pos.x, y: this.airdrop.pos.y + 0.2, z: this.airdrop.pos.z }, false);
       this.hud.toast(this.i18n.t('airdropLanded'), 'kill');
@@ -378,7 +503,8 @@ export class Game {
       this.audio.zoneWarn();
       this.hud.toast(this.i18n.both('zoneClosing'), 'bad');
     }
-    const zd = this.zone.damageFor(this.player.pos.x, this.player.pos.z, dt);
+    const airborne = this.player.inPlane || this.player.dropping;
+    const zd = airborne ? 0 : this.zone.damageFor(this.player.pos.x, this.player.pos.z, dt);
     if (zd > 0) {
       this.player.takeDamage(zd, this.time);
       this._zoneTick = (this._zoneTick ?? 0) + dt;
@@ -433,6 +559,19 @@ export class Game {
       this.dropChute.root.visible = ad.state === 'falling';
       if (ad.state === 'falling') this.dropView.rotation.y += dt * 0.4;
     }
+    const pr = this.plane.root;
+    pr.visible = !!this.route && this.planeT < 1.05 && this.state !== MatchState.IDLE;
+    if (pr.visible) {
+      const q = routePoint(this.route, Math.min(1.05, this.planeT));
+      pr.position.set(q.x, CONFIG.drop.planeHeight + 3, q.z);
+      pr.rotation.set(0, Math.atan2(this.route.dir.x, this.route.dir.z), Math.sin(this.time * 0.8) * 0.03);
+    }
+    root.visible = !p.inPlane && !p.scopeFov;
+    // Fog thins with altitude so the map is readable from the plane and the fall.
+    const q = QUALITY[this.quality] ?? QUALITY.med;
+    const lift = Math.max(0, this.cam.camera.position.y - 12);
+    this.scene.fog.near = q.fogNear + lift * 1.2;
+    this.scene.fog.far = q.fogFar + lift * 2.4;
     const chute = this.parachute.root;
     chute.visible = p.dropping && p.chute;
     if (chute.visible) {
@@ -450,13 +589,19 @@ export class Game {
       }));
     }
     anim.update(dt, { speed: p.speed, aiming: p.aiming, pitch: p.pitch, armed: !!w });
-    root.visible = true;
 
     // bots
     this.bots.forEach((bot, i) => {
       const bv = this.botViews[i];
       if (!bv) return;
       bv.view.root.position.set(bot.pos.x, bot.pos.y, bot.pos.z);
+      // distance cull: past the fog a character is a few pixels and ~15 draw calls
+      const cp = this.cam.camera.position;
+      const camDist = Math.hypot(bot.pos.x - cp.x, bot.pos.z - cp.z);
+      bv.view.root.visible = camDist < Math.min(120, this.scene.fog.far * 0.75);
+      // shadows only up close, where they read; each one is another draw call
+      const shadow = camDist < 40;
+      if (bv.shadow !== shadow) { bv.shadow = shadow; bv.view.root.traverse((o) => { if (o.isMesh) o.castShadow = shadow; }); }
       bv.view.root.rotation.y = bot.yaw + Math.PI;
       const st = resolveState({
         alive: bot.alive, reloading: bot.weapon.reloading, firing: false,
@@ -645,9 +790,14 @@ export class Game {
     return { x: (v.x + 1) / 2 * window.innerWidth, y: (1 - v.y) / 2 * window.innerHeight };
   }
 
+  /** Look sensitivity multiplier: scopes slow aim in proportion to zoom. */
+  lookScale() {
+    return this.player.scopeFov ? this.player.scopeFov / CONFIG.camera.fov : 1;
+  }
+
   botName(bot) { return bot ? this.i18n.t(`bot_${bot.name}`) : ''; }
 
-  _onBotDeath(bot, cause, weaponId = null) {
+  _onBotDeath(bot, cause, weaponId = null, killer = null) {
     const t = (k) => this.i18n.t(k);
     const name = this.botName(bot);
     if (cause === 'player') {
@@ -659,6 +809,9 @@ export class Game {
       const title = this._streak >= 3 ? t('tripleKill') : this._streak === 2 ? t('doubleKill') : t('elimination');
       this.hud.banner(title, name);
       this.audio.pickup(); haptics.kill();
+    } else if (cause === 'bot' && killer) {
+      const wname = weaponId ? this.lootLabel({ type: 'weapon', weaponId }) : '';
+      this.hud.killFeed(this.botName(killer), name, wname, false);
     } else {
       this.hud.killFeed(t('zoneKiller'), name, '', false);
     }
@@ -683,6 +836,25 @@ export class Game {
     const c = bot.chest;
     if (Math.hypot(c.x - e.x, c.z - e.z) > 90) return false;
     return !segmentBlocked(e.x, e.z, e.y, c.x, c.z, c.y, this.colliders);
+  }
+
+  /** Bot vs bot fire: same damage rule as against the player. */
+  _botShootBot(bot, rival, accurate, dist) {
+    const def = bot.weapon.def;
+    const muzzle = { x: bot.pos.x, y: bot.pos.y + 1.4, z: bot.pos.z };
+    const c = rival.chest;
+    const to = accurate ? c : { x: c.x + (this.rng() - 0.5) * 3, y: c.y + (this.rng() - 0.5) * 1.5, z: c.z + (this.rng() - 0.5) * 3 };
+    const ear = Math.hypot(bot.pos.x - this.player.pos.x, bot.pos.z - this.player.pos.z);
+    if (ear < 90) {
+      this.effects.muzzleFlash(new THREE.Vector3(muzzle.x, muzzle.y, muzzle.z), 0.8);
+      this.effects.tracer(muzzle, to);
+      this.audio.shot(def.class, ear);
+    }
+    if (!accurate || !rival.alive) return;
+    rival.health.damage(botShotDamage(def, dist), this.time);
+    rival.lastKnown = null;
+    rival.rival = bot;                            // shoot back at whoever is shooting
+    if (!rival.alive) this._onBotDeath(rival, 'bot', bot.weapon.id, bot);
   }
 
   _botShoot(bot, accurate, dist) {

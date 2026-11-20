@@ -145,3 +145,18 @@ describe('Bot navigation around geometry', () => {
     expect(bot.pos.z).toBeGreaterThan(0);        // made it through
   });
 });
+
+describe('Concealment', async () => {
+  const { Bot } = await import('../src/ai/bot.js');
+  const { Player } = await import('../src/player/player.js');
+  const { CONFIG } = await import('../src/core/config.js');
+  it('a crouched player in a bush is only spotted from close range', () => {
+    const bot = new Bot({ x: 0, z: 0, name: 'T' });
+    bot.yaw = Math.PI;                                    // facing +Z, toward the player
+    const p = new Player({ x: 0, z: 12 });
+    expect(bot.canSee(p.chest, [], false)).toBe(true);
+    expect(bot.canSee(p.chest, [], true)).toBe(false);
+    p.pos.z = CONFIG.bots.concealedRange - 1;
+    expect(bot.canSee(p.chest, [], true)).toBe(true);
+  });
+});

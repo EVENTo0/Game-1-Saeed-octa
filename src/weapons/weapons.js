@@ -18,6 +18,20 @@ export const WEAPONS = {
     damage: 78, rpm: 48, magSize: 5, reserveStart: 20, reloadTime: 3.0,
     spread: 0.05, aimSpread: 0.0012, range: 220, pellets: 1, auto: false,
     recoil: 0.08, ammoType: 'heavy', color: 0x2fd4c4, rarity: 'epic',
+    scope: { fov: 20 },
+  },
+  SARB_9: {
+    id: 'SARB_9', nameAr: 'سرب-٩', nameEn: 'SARB-9', class: 'smg',
+    damage: 13, rpm: 860, magSize: 32, reserveStart: 96, reloadTime: 1.8,
+    spread: 0.026, aimSpread: 0.012, range: 70, pellets: 1, auto: true,
+    recoil: 0.010, ammoType: 'light', color: 0x3fb0ff, rarity: 'common',
+  },
+  SAQR_DMR: {
+    id: 'SAQR_DMR', nameAr: 'الصقر', nameEn: 'SAQR DMR', class: 'dmr',
+    damage: 42, rpm: 210, magSize: 10, reserveStart: 40, reloadTime: 2.4,
+    spread: 0.03, aimSpread: 0.0025, range: 180, pellets: 1, auto: false,
+    recoil: 0.045, ammoType: 'heavy', color: 0xe07b39, rarity: 'rare',
+    scope: { fov: 34 },
   },
   OCTA_BLADE: {
     id: 'OCTA_BLADE', nameAr: 'نصل أوكتا', nameEn: 'OCTA BLADE', class: 'melee',
@@ -27,7 +41,7 @@ export const WEAPONS = {
   },
 };
 
-export const AMMO_PICKUP = { rifle: 30, shell: 8, heavy: 5, none: 0 };
+export const AMMO_PICKUP = { rifle: 30, light: 40, shell: 8, heavy: 6, none: 0 };
 
 export class WeaponInstance {
   constructor(id, ammoInMag = null, reserve = null) {

@@ -433,3 +433,21 @@ h2{font-size:clamp(20px,5vw,30px);color:var(--gold-soft)}
 .za-text{display:flex;flex-direction:column;line-height:1.1}
 .za-text small{font-size:10px;color:#ffc2cd;letter-spacing:.06em}
 .za-text b{font-size:16px;direction:ltr;font-variant-numeric:tabular-nums}
+
+/* ---- v2.2: plane jump, concealment ---- */
+.eject-btn{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(var(--hud-pad) + 62px);
+  min-width:120px;min-height:64px;padding:10px 22px;border-radius:18px;cursor:pointer;z-index:6;
+  font-family:inherit;font-size:20px;font-weight:900;letter-spacing:.04em;color:#150f28;
+  background:linear-gradient(180deg,#ffe08a,var(--gold));border:2px solid #fff3c4;
+  box-shadow:0 8px 26px rgba(212,167,44,.45);animation:pulse 1.2s ease-in-out infinite}
+.eject-btn:active{transform:translateX(-50%) scale(.95)}
+#conceal-chip{position:absolute;bottom:calc(var(--hud-pad) + 64px);left:var(--side-pad);padding:4px 10px;
+  border-radius:10px;font-size:12px;background:rgba(30,60,30,.75);border:1px solid #6fbf6a;color:#d8ffd2}
+@media (max-height:460px){.eject-btn{bottom:calc(var(--hud-pad) + 46px);min-height:52px}}
+/* scope: black surround, thin reticle, centre dot */
+#scope{position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(circle at 50% 50%, transparent 0 min(34vh,34vw), rgba(0,0,0,.55) calc(min(34vh,34vw) + 1px), #000 calc(min(34vh,34vw) + 8px))}
+#scope .sc-h{position:absolute;top:50%;left:calc(50% - min(34vh,34vw));width:calc(2 * min(34vh,34vw));height:1px;background:rgba(0,0,0,.85)}
+#scope .sc-v{position:absolute;left:50%;top:calc(50% - min(34vh,34vw));height:calc(2 * min(34vh,34vw));width:1px;background:rgba(0,0,0,.85)}
+#scope .sc-dot{position:absolute;top:50%;left:50%;width:5px;height:5px;margin:-2.5px 0 0 -2.5px;border-radius:50%;background:#ff3b5c;
+  box-shadow:0 0 6px #ff3b5c}

@@ -21,6 +21,7 @@ import { botShotDamage } from '../src/combat/botFire.js';
 import { segmentBlocked } from '../src/world/collision.js';
 import { makeRng, normalize2, clamp } from '../src/core/mathx.js';
 import { CONFIG } from '../src/core/config.js';
+import { WEAPONS } from '../src/weapons/weapons.js';
 import { createInputState } from '../src/ui/input.js';
 
 const DT = 1 / 30;
@@ -83,8 +84,9 @@ class ScriptedPlayer {
 
     const w = p.inventory.weapon;
 
-    // --- healing: only when hurt and nothing in sight ---
-    if (!near && p.health.value < 55 && p.inventory.medkits > 0 && p.healTimer <= 0) {
+    // --- healing: when hurt and nothing close (a human heals behind cover
+    // while a distant enemy plinks; on the 520 m map that is most fights) ---
+    if ((!near || nd > 40) && p.health.value < 55 && p.inventory.medkits > 0 && p.healTimer <= 0) {
       input.use = true;
       this.stats.heals += 1;
       return input;
@@ -164,7 +166,10 @@ class ScriptedPlayer {
     // player look far worse than a human, which would have hidden the real
     // balance picture behind a bad script.
     if (near && this.reaction <= 0 && w && !w.reloading && w.mag > 0) {
-      const engageRange = Math.min(w.def.range * 0.6, w.def.class === 'shotgun' ? 18 : 48);
+      // ADS lets a human return fire at the ranges bots open up from on the
+      // bigger map; close-range guns still wait for the enemy to come in.
+      const cap = { shotgun: 18, smg: 40 }[w.def.class] ?? 65;
+      const engageRange = Math.min(w.def.range * 0.6, cap);
       if (nd <= engageRange) {
         const want = Math.atan2(-(near.pos.x - p.pos.x), -(near.pos.z - p.pos.z));
         let off = want - p.yaw;
@@ -172,20 +177,27 @@ class ScriptedPlayer {
         while (off < -Math.PI) off += Math.PI * 2;
         const onTarget = Math.abs(off) < 0.09;     // ~5 degrees
         input.aim = nd > 12;                       // ADS at distance, hipfire up close
-        input.fire = onTarget;
+        // semi-auto guns need a fresh press per shot, as a thumb does
+        input.fire = onTarget && (w.def.auto || !this.firedLast);
       }
     }
+    this.firedLast = !!input.fire;
     // --- interact with loot we are standing on ---
     const item = loot.nearest(p.pos.x, p.pos.z);
     if (item) {
-      const wantIt = item.type !== 'medkit' || p.inventory.medkits < CONFIG.match.maxMedkits;
+      const rank = { common: 0, rare: 1, epic: 2 };
+      const cur = p.inventory.weapon;
+      const better = (id) => p.inventory.slots.length < 2
+        || (rank[WEAPONS[id]?.rarity] ?? 0) > (rank[cur?.def.rarity] ?? 0);
+      const wantIt = item.type === 'weapon' ? better(item.weaponId)
+        : item.type !== 'medkit' || p.inventory.medkits < CONFIG.match.maxMedkits;
       if (wantIt) input.interact = true;
     }
     return input;
   }
 }
 
-export function simulateMatch(seed = 1, { skill = 0.55, style = 'aggressive' } = {}) {
+export function simulateMatch(seed = 1, { skill = 0.55, style = 'aggressive', trace = null } = {}) {
   const rng = makeRng(seed);
   const map = buildMap();
   const colliders = map.colliders;
@@ -197,7 +209,7 @@ export function simulateMatch(seed = 1, { skill = 0.55, style = 'aggressive' } =
 
   const zone = new SafeZone(map.center);
   const loot = new LootManager(map.lootSpots);
-  const loadouts = ['OCTA_AR', 'DESERT_CLAW', 'OCTA_AR', 'SAEED_50', 'OCTA_AR'];
+  const loadouts = ['OCTA_AR', 'SARB_9', 'DESERT_CLAW', 'OCTA_AR', 'SAQR_DMR', 'SARB_9', 'OCTA_AR', 'SAEED_50', 'DESERT_CLAW'];   // same as Game
   const bots = map.spawns.bots.slice(0, CONFIG.bots.count).map((s, i) =>
     new Bot({ ...s, weaponId: loadouts[i % loadouts.length], id: `bot_${i}_${s.name}` }));
 
@@ -215,6 +227,13 @@ export function simulateMatch(seed = 1, { skill = 0.55, style = 'aggressive' } =
   };
 
   let fireHeld = false;
+  // bots fight each other with the same damage rule as in the Game
+  const botCtxExtra = {
+    rivals: bots,
+    onShootBot: (bot, rival, accurate, dist) => {
+      if (accurate && rival.alive) rival.health.damage(botShotDamage(bot.weapon.def, dist), t);
+    },
+  };
 
   while (t < MAX_SECONDS) {
     const input = brain.decide(DT, { bots, colliders, zone, loot });
@@ -284,6 +303,7 @@ export function simulateMatch(seed = 1, { skill = 0.55, style = 'aggressive' } =
         brain.stats.dmgFromBots += player.takeDamage(dmg, t);
         brain._healing = false;
       },
+      ...botCtxExtra,
     };
     for (const bot of bots) bot.update(DT, botCtx);
 
@@ -292,6 +312,11 @@ export function simulateMatch(seed = 1, { skill = 0.55, style = 'aggressive' } =
     const zd = zone.damageFor(player.pos.x, player.pos.z, DT);
     if (zd > 0) brain.stats.dmgFromZone += player.takeDamage(zd, t);
 
+    if (trace && Math.floor(t) !== Math.floor(t - DT)) {
+      const tg = brain.target;
+      const shooters = bots.filter((b) => b.alive && b.foe === player).map((b) => Math.round(Math.hypot(b.pos.x - player.pos.x, b.pos.z - player.pos.z)));
+      trace.push(`${Math.round(t)}s hp${Math.round(player.health.value)} tgt${tg ? Math.round(Math.hypot(tg.pos.x - player.pos.x, tg.pos.z - player.pos.z)) : '-'} shooters[${shooters}] shots${brain.stats.shots} w${player.inventory.weapon?.id}:${player.inventory.weapon?.mag}`);
+    }
     t += DT;
     if (!player.alive) { outcome = 'defeat'; break; }
     if (bots.every((b) => !b.alive)) { outcome = 'victory'; break; }
@@ -367,7 +392,7 @@ if (process.argv[1] && process.argv[1].endsWith('balance.mjs')) {
       console.log(`\n=== skill ${r.skill}  (${r.matches} matches) ===`);
       console.log(`  win ${(r.winRate * 100).toFixed(1)}%   loss ${(r.lossRate * 100).toFixed(1)}%   timeout ${(r.timeoutRate * 100).toFixed(1)}%`);
       console.log(`  match length   median ${r.medMatchSec.toFixed(0)}s   avg ${r.avgMatchSec.toFixed(0)}s   p90 ${r.p90MatchSec.toFixed(0)}s`);
-      console.log(`  kills ${r.avgKills.toFixed(2)}/5   accuracy ${(r.avgAccuracy * 100).toFixed(1)}%   pickups ${r.avgPickups.toFixed(1)}`);
+      console.log(`  kills ${r.avgKills.toFixed(2)}/${CONFIG.bots.count}   accuracy ${(r.avgAccuracy * 100).toFixed(1)}%   pickups ${r.avgPickups.toFixed(1)}`);
       console.log(`  time-to-kill   median ${r.medTtk.toFixed(2)}s   p90 ${r.p90Ttk.toFixed(2)}s`);
       console.log(`  damage taken   bots ${r.avgDmgFromBots.toFixed(0)}   zone ${r.avgDmgFromZone.toFixed(0)}`);
       console.log(`  hp left on win ${r.avgHpLeftOnWin.toFixed(0)}   avg zone phase reached ${r.avgZonePhase.toFixed(1)}/4`);
