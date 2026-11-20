@@ -1,5 +1,35 @@
 # Changelog
 
+## 2.2.0
+
+Answers the owner's phone test: looking around did not work, landings dropped
+you among enemies, and the map was too small.
+
+- **Fix: touch look on real phones.** The HUD is click-through, so a real
+  finger on open screen reached the canvas and never the touch handler; tests
+  had dispatched events straight onto the HUD and missed it. Touch is now
+  read at document level, and smoke drives look with real (CDP) touches.
+- **Fire-and-look**: dragging from the fire button keeps aiming. Look has a
+  response curve and slows when aiming or scoped.
+- **Saeed Island**: 520 m map (5.6x the area) with 12 named locations, climbable
+  roofs and fort towers, shipping containers, ruins, sandbags, bushes, roads,
+  windows and per-material buildings.
+- **Plane and landing**: ride the plane along a route shown in the lobby, jump
+  anywhere or auto-jump over the marked spot, ~15 s freefall with a manual or
+  automatic canopy, and a glide that steers to the marker. Landing names the
+  location; at most one bot is left within 60 m.
+- **Ten players**: 9 bots that loot their landing spot, rotate to the next
+  zone and fight each other too. Crouch in a bush to stay hidden.
+- **Weapons**: SARB-9 SMG and SAQR DMR; new PBR weapon models; first-person
+  scopes on the DMR and SAEED-50.
+- **Characters**: capsule-built bodies with helmet, plate carrier and backpack;
+  nine distinct bot palettes; fixed outfits being darkened to black.
+- **Performance**: 7x faster raycasts, instanced loot, bot culling: 102 draw
+  calls per frame against 176 before the optimisation.
+- **Balance** (tests/balance.mjs, N=120, aggressive script): win 15.0/17.5/19.2%
+  by skill, median 183 s after landing. Two harness bugs fixed on the way
+  (semi-automatics never re-fired; it swapped rifles for shotguns).
+
 ## 2.1.0
 
 In-match depth.

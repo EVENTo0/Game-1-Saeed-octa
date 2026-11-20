@@ -235,7 +235,7 @@ export class HUD {
     }
 
     // pickup prompt
-    const item = game.nearbyLoot;
+    const item = p.scopeFov ? null : game.nearbyLoot;   // nothing over the scope
     if (item) {
       this.el.pickup.classList.remove('hidden');
       this.el.pickupText.textContent = `${t('pickup')} · ${game.lootLabel(item)}`;

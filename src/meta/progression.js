@@ -18,7 +18,7 @@ export const XP_RULES = {
 /** Cosmetic skins. `level` is the account level that unlocks it. */
 export const SKINS = [
   { id: 'classic', level: 1, nameAr: 'الكلاسيكي', nameEn: 'Classic',
-    primary: 0x24212f, accent: 0x8250ff, gold: 0xe8bd47, cloth: 0x2b2440, visor: 0x39e0d0 },
+    primary: 0x3a3452, accent: 0x8250ff, gold: 0xe8bd47, cloth: 0x463d63, visor: 0x39e0d0 },
   { id: 'dune', level: 2, nameAr: 'كثبان ذهبية', nameEn: 'Golden Dune',
     primary: 0x8a6a3c, accent: 0xd9b26a, gold: 0xf4d27a, cloth: 0x6b5232, visor: 0xffb347 },
   { id: 'night', level: 3, nameAr: 'عمليات ليلية', nameEn: 'Night Ops',

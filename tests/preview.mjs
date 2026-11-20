@@ -53,16 +53,18 @@ async function main() {
   const ev = (fn, arg) => page.evaluate(fn, arg);
   const vp = { w: 851, h: 393 };
 
+  const cdp = await ctx.newCDPSession(page);
+  // Real, hit-tested touches (what a finger does), not events dispatched onto an element.
   const touchDrag = async (id, x, y, dx, dy, steps = 8) => {
-    await page.dispatchEvent('#hud', 'pointerdown', { pointerId: id, clientX: x, clientY: y, isPrimary: true, pointerType: 'touch', bubbles: true });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y, id }] });
     for (let i = 1; i <= steps; i++) {
-      await ev(([px, py, pid]) => window.dispatchEvent(new PointerEvent('pointermove', { pointerId: pid, clientX: px, clientY: py, bubbles: true })),
-        [x + (dx * i) / steps, y + (dy * i) / steps, id]);
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + (dx * i) / steps, y: y + (dy * i) / steps, id }] });
       await sleep(60);
     }
-    await ev((pid) => window.dispatchEvent(new PointerEvent('pointerup', { pointerId: pid, bubbles: true })), id);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
     await sleep(250);
   };
+
 
   await page.goto(URL_, { waitUntil: 'load' });
   await sleep(1500);
@@ -82,21 +84,31 @@ async function main() {
   // land on the classic spawn so the scripted scenes below stay comparable run to run
   await ev(() => globalThis.SAEED.setDrop({ ...globalThis.SAEED.game.map.spawns.player }));
 
+  await shot('مسار الطائرة', 'Lobby map: twelve named locations, the flight path and the marked landing spot');
+
   await page.locator('#btn-play').tap(); await sleep(1500);
-  check('match opens with a skydive', await ev(() => globalThis.SAEED.game.player.dropping));
-  await shot('القفز الحر', 'Freefall: altitude chip, first-match coaching line');
-  await page.waitForFunction(() => globalThis.SAEED.game.player.chute, null, { timeout: 60000 });
+  check('match opens on the plane', await ev(() => globalThis.SAEED.game.player.inPlane));
+  await shot('الطائرة', 'On the plane: JUMP button, flight path on the minimap, the island below');
+  await page.waitForFunction(() => globalThis.SAEED.game.player.dropping, null, { timeout: 120000 }).catch(() => {});
+  await sleep(1200);
+  await shot('القفز الحر', 'Freefall from 166 m: altitude chip, OPEN CANOPY button, glide toward the marker');
+  await page.waitForFunction(() => globalThis.SAEED.game.player.chute, null, { timeout: 120000 }).catch(() => {});
   await sleep(900);
   await shot('المظلة', 'Canopy open in EVENTO purple and gold');
-  const landed = await page.waitForFunction(() => !globalThis.SAEED.game.player.dropping, null, { timeout: 90000 }).then(() => true).catch(() => false);
-  check('Saeed lands safely', landed);
+  const landed = await page.waitForFunction(() => { const p = globalThis.SAEED.game.player; return !p.dropping && !p.inPlane; }, null, { timeout: 180000 }).then(() => true).catch(() => false);
+  check('Saeed lands safely on the marked spot', landed && await ev(() => {
+    const g = globalThis.SAEED.game; const s = g.map.spawns.player;
+    return Math.hypot(g.player.pos.x - s.x, g.player.pos.z - s.z) < 6;
+  }));
+  // the scripted scenes below should not be decided by a passing bot
+  await ev(() => { globalThis.SAEED.game.freezeBots = true; });
   await sleep(700);
   const face = await ev(() => { const g = globalThis.SAEED.game; return Math.abs(Math.cos(g.playerView.root.rotation.y - g.player.yaw) + 1); });
   check('character faces away from camera', face < 1e-3);
   await shot('الهبوط', 'Touchdown: "safe landing" toast, Saeed seen from behind, OCTA at the shoulder');
 
   // ---- look around (touch drag, right side) ----
-  const lx = vp.w * 0.7, ly = vp.h * 0.4;
+  const lx = vp.w * 0.56, ly = vp.h * 0.3;            // open screen, clear of the buttons
   const y0 = await ev(() => globalThis.SAEED.game.player.yaw);
   await touchDrag(2, lx, ly, -170, 0);
   const y1 = await ev(() => globalThis.SAEED.game.player.yaw);
@@ -173,7 +185,8 @@ async function main() {
   // ---- v2.1: supply drop ----
   await ev(() => {
     const g = globalThis.SAEED.game;
-    g.matchTime = Math.max(g.matchTime, 50);
+    g.airdrop.reset();
+    g.matchTime = Math.max(g.matchTime, g.airdrop.cfg.at);
   });
   await page.waitForFunction(() => globalThis.SAEED.game.airdrop.state === 'falling', null, { timeout: 15000 }).catch(() => {});
   await ev(() => {
@@ -219,6 +232,42 @@ async function main() {
   });
   await sleep(1100);
   await shot('عم منصور', 'Uncle Mansour — "وين القهوة؟"');
+
+  // ---- v2.2: scope, hiding, the new locations ----
+  await ev(() => {
+    const g = globalThis.SAEED.game; const p = g.map.pois.find((x) => x.id === 'hills');
+    g.player.pos.x = p.x; g.player.pos.z = p.z; g.player.pos.y = 8.8;
+    g.player.inventory.addWeapon('SAEED_50'); g._equipWeaponModel();
+    g.player.yaw = 2.4; g.player.pitch = -0.05; g.player.health.value = 100;
+    globalThis.SAEED.input.state.aim = true;
+  });
+  await sleep(1200);
+  await shot('المنظار', 'SAEED-50 scope from the top of Rocky Hills: first-person zoom, reticle');
+  check('scope view replaces the crosshair', await ev(() => !document.getElementById('scope').classList.contains('hidden')));
+  await ev(() => { globalThis.SAEED.input.state.aim = false; });
+  await ev(() => {
+    const g = globalThis.SAEED.game; const b = g.map.bushes[3];
+    g.player.pos.x = b.x; g.player.pos.z = b.z; g.player.pos.y = 0;
+    globalThis.SAEED.input.state.crouch = true; g.player.yaw = 0.8; g.player.health.value = 100;
+  });
+  await sleep(900);
+  await shot('الاختباء', 'Crouched in a bush: HIDDEN, bots only spot you from 7 m');
+  check('crouching in a bush hides Saeed', await ev(() => globalThis.SAEED.game.player.concealed));
+  await ev(() => { globalThis.SAEED.input.state.crouch = false; });
+  for (const [id, title, yaw, dx, dz] of [
+    ['town', 'البلدة القديمة', 0, 6, 46], ['fort', 'الحصن', 0, 44, 10], ['port', 'الميناء', 0, -46, 20],
+    ['souq', 'السوق', 0, -44, 4], ['base', 'القاعدة العسكرية', 0, 14, -36],
+  ]) {
+    await ev(([id, , dx, dz]) => {
+      const g = globalThis.SAEED.game; const p = g.map.pois.find((x) => x.id === id);
+      g.player.pos.x = p.x + dx; g.player.pos.z = p.z + dz; g.player.pos.y = 0;
+      // face the location so the shot frames it
+      g.player.yaw = Math.atan2(-(p.x - g.player.pos.x), -(p.z - g.player.pos.z));
+      g.player.pitch = 0.06; g.player.health.value = 100;
+    }, [id, yaw, dx, dz]);
+    await sleep(1000);
+    await shot(title, `Location tour: ${id}`);
+  }
 
   // ---- zone ----
   await ev(() => { const g = globalThis.SAEED.game; for (let i = 0; i < 1500 && !(g.zone.state === 'shrinking' && g.zone.phase >= 1); i++) g.zone.update(0.1); g.player.pos.x = g.zone.center.x + 60; g.player.pos.z = g.zone.center.z; g.player.health.value = 100; });
