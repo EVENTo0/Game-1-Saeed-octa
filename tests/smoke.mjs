@@ -679,6 +679,27 @@ async function main() {
   ok('whole frame stays inside a mobile draw-call budget', perfInfo.calls < 150,
     `${perfInfo.calls} draw calls, ${perfInfo.tris} triangles`);
 
+  // ---------- crash resilience ----------
+  // Phones drop the GPU context under memory pressure; the game must survive it.
+  const gl = await page.evaluate(async () => {
+    const g = globalThis.SAEED.game;
+    const ext = g.renderer.getContext().getExtension('WEBGL_lose_context');
+    if (!ext) return { skipped: true };
+    ext.loseContext();
+    await new Promise((r) => setTimeout(r, 500));
+    const lost = g.contextLost;
+    ext.restoreContext();
+    await new Promise((r) => setTimeout(r, 1200));
+    if (g.state === 'paused') globalThis.SAEED.resumeMatch();
+    await new Promise((r) => setTimeout(r, 300));
+    return { lost, restored: !g.contextLost, state: g.state };
+  });
+  ok('the game survives a lost GPU context', gl.skipped || (gl.lost && gl.restored && gl.state !== 'idle'), JSON.stringify(gl));
+  ok('the mobile build skips MSAA to save GPU memory', await page.evaluate(() =>
+    globalThis.SAEED.game.renderer.getContextAttributes().antialias === false));
+  ok('a match in progress is flagged for crash recovery', await page.evaluate(() =>
+    localStorage.getItem('saeed_running_v1') !== null || globalThis.SAEED.game.state !== 'playing'));
+
   // ---------- performance sample ----------
   const perf = await page.evaluate(async () => {
     let frames = 0;

@@ -7,6 +7,7 @@ import { TouchControls, isTouchDevice } from './ui/touchControls.js';
 import { setHaptics } from './ui/haptics.js';
 import { Profile, SKINS } from './meta/progression.js';
 import { CONFIG } from './core/config.js';
+import { CrashGuard } from './core/crashGuard.js';
 
 const $ = (id) => document.getElementById(id);
 const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
@@ -20,7 +21,13 @@ const screens = new Screens();
 const canvas = $('game-canvas');
 
 const prefs = loadPrefs();
-const game = new Game(canvas, { audio, hud, i18n, quality: prefs.quality });
+const touchMode = isTouchDevice();
+// If the last session was cut off mid-match (a phone killing the tab for
+// memory), come back in performance mode instead of crashing again.
+const guard = new CrashGuard(safeStorage());
+const recoveredFromCrash = guard.consumeCrash() && prefs.quality !== 'low';
+if (recoveredFromCrash) { prefs.quality = 'low'; savePrefs(prefs); }
+const game = new Game(canvas, { audio, hud, i18n, quality: prefs.quality, mobile: touchMode });
 const input = new InputManager();
 input.sensitivity = prefs.sensitivity;
 input.attachKeyboard(window, canvas);
@@ -36,7 +43,6 @@ if (profile.data.skin !== 'classic') game.setSkin(skinById(profile.data.skin));
 // Automation (smoke/preview) runs at a fixed resolution so screenshots compare.
 game.dynamicResolution = !navigator.webdriver;
 
-const touchMode = isTouchDevice();
 input.mouseEnabled = !touchMode;
 // Aim assist exists to make up for a thumb on glass; a mouse does not need it.
 game.aimAssistEnabled = touchMode && prefs.assist !== false;
@@ -58,6 +64,7 @@ let uiState = 'splash';
 
 function goSplash() { uiState = 'splash'; screens.show('splash'); hud.show(false); setPlaying(false); }
 function goMenu() {
+  guard.markClean();
   uiState = 'menu';
   game.state = MatchState.IDLE;
   game.player.reset();
@@ -87,6 +94,10 @@ function renderLobby() {
     ? `${i18n.t('record')} #${d.bestPlacement || '-'} · ${d.wins} ${i18n.t('wins')}`
     : '';
   $('app-version').textContent = `v${__APP_VERSION__}`;
+  if (recoveredFromCrash) {
+    $('safe-note').textContent = i18n.t('safeMode');
+    $('safe-note').classList.remove('hidden');
+  }
 
   const list = $('skin-list');
   list.replaceChildren();
@@ -184,7 +195,13 @@ function guardInput(el, ms = 300) {
   clearTimeout(el._guard);
   el._guard = setTimeout(() => el.classList.remove('no-input'), ms);
 }
-function goSettings() { uiState = 'settings'; screens.show('settings'); }
+function goSettings() {
+  uiState = 'settings';
+  qual.value = prefs.quality;
+  const e = guard.lastError();
+  $('diag').textContent = `v${__APP_VERSION__}` + (e ? ` · ${i18n.t('lastError')}: ${e.msg.split('\n')[0].slice(0, 90)}` : '');
+  screens.show('settings');
+}
 
 function setPlaying(on) {
   input.enabled = on;
@@ -193,6 +210,7 @@ function setPlaying(on) {
 }
 
 function startMatch() {
+  guard.markRunning();
   audio.unlock();
   screens.hideAll();
   hud.show(true);
@@ -360,7 +378,28 @@ window.addEventListener('keydown', (e) => {
 document.addEventListener('pointerlockchange', () => {
   if (uiState === 'playing' && !touchMode && !document.pointerLockElement) pauseMatch();
 });
-document.addEventListener('visibilitychange', () => { if (document.hidden && uiState === 'playing') pauseMatch(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { guard.markClean(); if (uiState === 'playing') pauseMatch(); }
+  else if (uiState === 'playing' || uiState === 'paused') guard.markRunning();
+});
+window.addEventListener('pagehide', () => guard.markClean());
+
+// GPU context lost (memory pressure, backgrounding): pause, tell the player,
+// carry on once three.js has restored it.
+game.events.on('gl:lost', () => {
+  if (uiState === 'playing') pauseMatch();
+  hud.toast(i18n.t('glLost'), 'bad');
+});
+game.events.on('gl:restored', () => hud.toast(i18n.t('glRestored'), 'kill'));
+
+// Remember the last script error for diagnosis, and say so once.
+let errorShown = false;
+const onError = (msg) => {
+  guard.recordError(msg, __APP_VERSION__);
+  if (!errorShown) { errorShown = true; hud.toast(i18n.t('errorToast'), 'bad'); }
+};
+window.addEventListener('error', (e) => onError(e.message || String(e.error)));
+window.addEventListener('unhandledrejection', (e) => onError(String(e.reason)));
 
 // ------------------------------------------------------------------ resize
 function resize() {
@@ -416,13 +455,18 @@ function frame(now) {
   if (dt > 0.1) dt = 0.1;              // tab-switch guard
   if (dt <= 0) return;
 
-  const cmd = input.consume();
-  game.update(dt, cmd);
-  coach.update(dt);
-  input.lookScale = game.lookScale();
-  if (uiState === 'playing') game.adaptResolution(fps || 60, dt);
-  if (uiState === 'playing' || uiState === 'won' || uiState === 'lost') hud.update(game);
-  game.render();
+  // One bad frame must not end the session: record it and keep running.
+  try {
+    const cmd = input.consume();
+    game.update(dt, cmd);
+    coach.update(dt);
+    input.lookScale = game.lookScale();
+    if (uiState === 'playing') game.adaptResolution(fps || 60, dt);
+    if (uiState === 'playing' || uiState === 'won' || uiState === 'lost') hud.update(game);
+    game.render();
+  } catch (err) {
+    onError(err?.stack || String(err));
+  }
 
   fpsAcc += dt; fpsFrames++;
   if (fpsAcc >= 0.5) {

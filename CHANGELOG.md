@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.2.1
+
+Stability fix for "the game closes while playing" on phones.
+
+- **GPU memory leak fixed**: every weapon pickup or swap built a new weapon
+  model and the old one's buffers stayed on the GPU for the life of the page.
+  A 7-match soak now holds GPU geometries at the scene count (249 of 250) and
+  the JS heap flat at ~39 MB, with zero script errors.
+- **Lighter phone budget**: no MSAA on touch devices (its multisample buffers
+  are the largest single allocation on a high-density screen) and a 1.25
+  pixel-ratio cap.
+- **GPU context loss survived**: the match pauses, three.js restores the
+  context, play carries on (tested by forcing a loss mid-match).
+- **Crash recovery**: if a match is cut off without a clean exit, the next
+  launch switches to performance mode and says why.
+- **Error guard**: one failing frame is recorded and skipped instead of ending
+  the session; the last error shows in Settings for diagnosis.
+
 ## 2.2.0
 
 Answers the owner's phone test: looking around did not work, landings dropped

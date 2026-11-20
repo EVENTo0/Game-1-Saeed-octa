@@ -128,10 +128,11 @@ export function buildWeaponModel(id) {
     mesh.geometry.dispose();
   }
   parts.forEach((mesh) => root.remove(mesh));
+  const owned = [];                    // this model's GPU buffers; materials are shared
   for (const [material, geos] of byMat) {
     const merged = geos.length === 1 ? geos[0] : mergeGeometries(geos, false);
     geos.forEach((x) => { if (x !== merged) x.dispose(); });
-    if (merged) { keep(merged, shared.geos); const mm = new THREE.Mesh(merged, material); mm.castShadow = true; root.add(mm); }
+    if (merged) { owned.push(merged); const mm = new THREE.Mesh(merged, material); mm.castShadow = true; root.add(mm); }
   }
 
   const muzzle = new THREE.Object3D();
@@ -140,7 +141,9 @@ export function buildWeaponModel(id) {
   root.userData.muzzle = muzzle;
   root.rotation.set(0, 0.12, 0);
   root.position.set(0.02, 0, 0.06);
-  return { root, muzzle };
+  // Every pickup and swap builds a new model: without this the old one's
+  // buffers stayed on the GPU for the life of the page.
+  return { root, muzzle, dispose() { owned.forEach((x) => x.dispose()); owned.length = 0; } };
 }
 
 export function disposeWeaponModels() {

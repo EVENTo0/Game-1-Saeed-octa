@@ -50,7 +50,8 @@ const QUALITY = {
 const SUN_DIR = { x: 0.45, y: 0.62, z: 0.30 };
 
 export class Game {
-  constructor(canvas, { audio, hud, i18n, quality = 'med' } = {}) {
+  constructor(canvas, { audio, hud, i18n, quality = 'med', mobile = false } = {}) {
+    this.mobile = mobile;
     this.canvas = canvas;
     this.audio = audio;
     this.hud = hud;
@@ -91,7 +92,7 @@ export class Game {
     this.route = null;
     this.planeT = 0;
     this.dropTarget = null;
-    this.pixelRatioMax = Math.min(window.devicePixelRatio || 1, (QUALITY[quality] ?? QUALITY.med).pixelRatio);
+    this.pixelRatioMax = this._pixelCap(quality);
     this.pixelRatio = this.pixelRatioMax;
     this._resTimer = 0;
   }
@@ -101,12 +102,34 @@ export class Game {
   }
 
   // ---------------------------------------------------------------- renderer
+  /**
+   * Phones get a lighter GPU budget: no MSAA (its multisample buffers are the
+   * single biggest allocation on a 3x-density screen) and a lower pixel cap.
+   * Running out of GPU memory is what makes mobile browsers kill the tab.
+   */
+  _pixelCap(quality) {
+    const q = QUALITY[quality] ?? QUALITY.med;
+    return Math.min(window.devicePixelRatio || 1, this.mobile ? Math.min(q.pixelRatio, 1.25) : q.pixelRatio);
+  }
+
   _initRenderer() {
     const q = QUALITY[this.quality] ?? QUALITY.med;
     this.renderer = new THREE.WebGLRenderer({
-      canvas: this.canvas, antialias: this.quality !== 'low', powerPreference: 'high-performance',
+      canvas: this.canvas, antialias: this.quality !== 'low' && !this.mobile, powerPreference: 'high-performance',
     });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, q.pixelRatio));
+    this.renderer.setPixelRatio(this._pixelCap(this.quality));
+    // A phone can drop the GL context under memory pressure or when the tab is
+    // backgrounded. Keep the page alive and let three.js restore it.
+    this.contextLost = false;
+    this.canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      this.contextLost = true;
+      this.events.emit('gl:lost');
+    });
+    this.canvas.addEventListener('webglcontextrestored', () => {
+      this.contextLost = false;
+      this.events.emit('gl:restored');
+    });
     this.renderer.setSize(window.innerWidth, window.innerHeight, false);
     this.renderer.shadowMap.enabled = q.shadows;
     this.renderer.shadowMap.type = q.soft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
@@ -119,7 +142,7 @@ export class Game {
   setQuality(name) {
     const q = QUALITY[name] ?? QUALITY.med;
     this.quality = name;
-    this.pixelRatioMax = Math.min(window.devicePixelRatio || 1, q.pixelRatio);
+    this.pixelRatioMax = this._pixelCap(name);
     this.pixelRatio = this.pixelRatioMax;
     this.renderer.setPixelRatio(this.pixelRatio);
     this.renderer.shadowMap.enabled = q.shadows;
@@ -352,7 +375,7 @@ export class Game {
 
   _equipWeaponModel() {
     const socket = this.playerView.rig.weaponSocket;
-    if (this.weaponMesh) { socket.remove(this.weaponMesh.root); this.weaponMesh = null; }
+    if (this.weaponMesh) { socket.remove(this.weaponMesh.root); this.weaponMesh.dispose?.(); this.weaponMesh = null; }
     const w = this.player.inventory.weapon;
     if (!w) return;
     this.weaponMesh = buildWeaponModel(w.id);
@@ -974,7 +997,7 @@ export class Game {
   pause() { if (this.state === MatchState.PLAYING) { this.state = MatchState.PAUSED; return true; } return false; }
   resume() { if (this.state === MatchState.PAUSED) { this.state = MatchState.PLAYING; return true; } return false; }
 
-  render() { this.renderer.render(this.scene, this.cam.camera); }
+  render() { if (!this.contextLost) this.renderer.render(this.scene, this.cam.camera); }
   resize(w, h) {
     this.renderer.setSize(w, h, false);
     this.cam.resize(w / Math.max(1, h));
