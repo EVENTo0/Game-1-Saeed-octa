@@ -531,3 +531,193 @@ canvas#game-canvas.desat{filter:grayscale(.75) contrast(1.05) brightness(.85);tr
 .ch-row.done span{color:var(--ok);text-decoration:line-through;text-decoration-color:rgba(63,214,138,.5)}
 .ch-row.done .ch-bar i{background:var(--ok)}
 #hud.driving #coach-hint{display:none}
+
+/* =====================================================================
+   v3.1 — minimal HUD. Small translucent outline buttons that show only when
+   they do something; weapons and vitals bottom-centre; everything sized
+   and faded from Settings (--btn, --btn-op, --hud-k) and movable per button
+   (--dx, --dy, --s) by the layout editor.
+   ===================================================================== */
+:root{--btn:50px;--btn-op:.7;--hud-k:1}
+#hud{--ui-bg:rgba(10,8,20,.42);--ui-line:rgba(255,255,255,.16)}
+
+/* --- touch buttons --- */
+.btn-cluster{position:absolute;inset:0;width:auto;display:block;pointer-events:none;overflow:visible}
+.tbtn{position:absolute;pointer-events:auto;width:calc(var(--btn) * var(--btn-k, 1) * var(--s, 1) * var(--us, 1));height:calc(var(--btn) * var(--btn-k, 1) * var(--s, 1) * var(--us, 1));
+  border-radius:50%;display:grid;place-items:center;padding:0;cursor:pointer;color:#fff;
+  background:rgba(12,10,22,.24);border:1.5px solid rgba(255,255,255,.42);
+  box-shadow:0 2px 10px rgba(0,0,0,.18);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);
+  opacity:var(--btn-op);transform:translate(var(--dx, 0px), var(--dy, 0px));
+  transition:opacity .18s, background .08s, scale .06s;font-family:inherit}
+.tbtn svg{width:46%;height:46%;filter:drop-shadow(0 1px 1px rgba(0,0,0,.45));pointer-events:none}
+.tbtn em{position:absolute;bottom:-3px;inset-inline-end:-3px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;
+  font:700 10px/17px inherit;font-style:normal;background:rgba(10,8,20,.85);border:1px solid rgba(255,255,255,.3);pointer-events:none}
+.tbtn.pressed{scale:.9;background:rgba(255,255,255,.22);border-color:#fff}
+.tbtn.toggled{border-color:var(--gold);color:var(--gold-soft);background:rgba(232,189,71,.2)}
+.tbtn.ctx-off,.tbtn.empty{opacity:0 !important;pointer-events:none}
+.b-fire{--s:1.5;right:calc(var(--side-pad) + 38px);bottom:calc(var(--hud-pad) + 70px);
+  border-width:2px;border-color:rgba(255,255,255,.6);background:rgba(255,77,109,.16)}
+.b-fire.pressed{background:rgba(255,77,109,.42)}
+.b-aim{right:calc(var(--side-pad) + 132px);bottom:calc(var(--hud-pad) + 150px)}
+.b-jump{right:calc(var(--side-pad) + 20px);bottom:calc(var(--hud-pad) + 168px)}
+.b-reload{right:calc(var(--side-pad) + 146px);bottom:calc(var(--hud-pad) + 78px)}
+.b-crouch{right:calc(var(--side-pad) + 112px);bottom:calc(var(--hud-pad) + 8px)}
+.b-grenade{right:calc(var(--side-pad) + 196px);bottom:calc(var(--hud-pad) + 20px)}
+.b-grenade svg{color:#d6ec9a}
+.b-firel{--s:1.05;left:calc(var(--side-pad) + 26px);bottom:calc(var(--hud-pad) + 190px);background:rgba(255,77,109,.12)}
+#hud.no-left-fire .b-firel{display:none}
+/* the old cluster rules no longer apply */
+.btn-cluster .grenade-btn{position:absolute;bottom:calc(var(--hud-pad) + 20px);right:calc(var(--side-pad) + 196px)}
+#hud.driving .tbtn[data-action]:not([data-action="interact"]){opacity:0 !important;pointer-events:none}
+
+/* --- joystick: a faint ring at home, follows the thumb when touched --- */
+#joystick-zone{width:36%;height:64%}
+#joystick-base{width:112px;height:112px;margin:-56px 0 0 -56px;
+  left:calc(var(--side-pad) + 92px);top:calc(100% - var(--hud-pad) - 96px);
+  background:rgba(10,8,20,.16);border:1.5px solid rgba(255,255,255,.3);opacity:.45}
+#joystick-knob{width:44px;height:44px;background:rgba(255,255,255,.22);border:1.5px solid rgba(255,255,255,.7);box-shadow:none}
+
+/* --- bottom centre: weapons over vitals --- */
+.hud-bottom-left,.hud-bottom-right{display:none}
+.hud-vitals{position:absolute;z-index:3;left:50%;bottom:calc(var(--hud-pad) + 2px);transform:translateX(-50%) scale(var(--hud-k));
+  transform-origin:50% 100%;width:min(330px,36vw);display:flex;flex-direction:column;gap:5px;pointer-events:none}
+.weapon-slots{display:flex;gap:6px;justify-content:center}
+.wslot{flex:1 1 0;min-width:0;display:flex;align-items:baseline;justify-content:space-between;gap:6px;padding:4px 10px;
+  border-radius:8px;background:var(--ui-bg);border:1px solid var(--ui-line);border-bottom:2px solid var(--rar, #b8c2d6);
+  color:#fff;font:600 11px/1.2 inherit;pointer-events:none}
+.wslot.on{background:rgba(10,8,20,.55)}
+.wslot.alt{opacity:.75;justify-content:center;pointer-events:auto;cursor:pointer;flex:0 1 auto;max-width:42%}
+.ws-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.85}
+.ws-ammo{font-weight:800;font-size:15px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ws-ammo .sep{opacity:.45;margin:0 2px;font-size:11px}
+.ws-ammo #ammo-reserve{font-size:11px;opacity:.7}
+#ammo-line.empty #ammo-mag{color:var(--danger)}
+#ammo-line.reloading #ammo-mag{color:var(--gold-soft)}
+#weapon-panel{border-inline-start-width:1px !important;min-width:0;padding:4px 10px}
+#weapon-slot2{margin:0;font-size:10px}
+.vitals-row{display:flex;align-items:center;gap:6px}
+.vitals-row .health-wrap{flex:1;min-width:0;gap:2px}
+.vitals-row .armor-bar{height:3px;margin:0;border-radius:2px;background:rgba(74,168,255,.18)}
+.vitals-row .health-bar{height:7px;border-radius:4px;background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.14)}
+.vitals-row #health-fill{border-radius:4px;background:linear-gradient(90deg,#e9fff3,#bff5d6)}
+.vitals-row #health-fill.low{background:linear-gradient(90deg,var(--danger),#ff9aae)}
+.health-num{min-width:28px;font:800 13px/1 inherit;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.6);font-variant-numeric:tabular-nums}
+.tbtn.mini{position:relative;--s:.72;pointer-events:auto}
+.tbtn.mini svg{color:var(--ok)}
+
+/* --- contextual action pill --- */
+#pickup-prompt{z-index:3;left:auto;right:calc(var(--side-pad) + 236px);bottom:calc(var(--hud-pad) + 132px);top:auto;transform:none;
+  pointer-events:auto;cursor:pointer;display:flex;align-items:center;gap:8px;padding:7px 14px 7px 8px;border-radius:22px;
+  background:rgba(10,8,20,.6);border:1px solid rgba(232,189,71,.55);color:#fff;font:600 13px/1.2 inherit;max-width:42vw}
+#pickup-prompt.hidden{display:none}
+#hud.touch-active #pickup-prompt .key{display:none}
+#hud.touch-active #pickup-prompt::before{content:'';width:8px;height:8px;border-radius:50%;background:var(--gold);flex:none}
+
+/* --- top: smaller, quieter --- */
+.corner-btn{width:36px;height:36px;padding:0;display:grid;place-items:center;background:var(--ui-bg);border:1px solid var(--ui-line);border-radius:10px}
+.corner-btn svg{width:16px;height:16px;color:#fff}
+.chip-row .hud-chip{padding:2px 8px;font-size:11px;background:var(--ui-bg);border-color:var(--ui-line)}
+.chip-row .chip-value{font-size:12px}
+#minimap{width:112px;height:112px;opacity:.92}
+#kill-feed{top:calc(var(--hud-pad) + 46px);left:auto;right:var(--side-pad);align-items:flex-end}
+#quest-chip{top:calc(var(--hud-pad) + 70px);padding:2px 10px;font-size:11px;background:var(--ui-bg);border-color:rgba(255,159,67,.4)}
+#quest-chip .q-ico{font-size:12px}
+#speedo{top:calc(var(--hud-pad) + 48px);min-width:78px;padding:4px 10px}
+#speedo b{font-size:22px}
+#toast-stack{top:calc(var(--hud-pad) + 96px);right:auto;left:50%;transform:translateX(-50%);align-items:center}
+#coach-hint{bottom:calc(var(--hud-pad) + 84px);font-size:12px;padding:6px 12px;background:rgba(16,11,30,.7)}
+#drop-chip{top:calc(var(--hud-pad) + 70px)}
+#mansour-bubble{bottom:calc(var(--hud-pad) + 96px)}
+#conceal-chip{bottom:calc(var(--hud-pad) + 96px)}
+@media (max-height:460px){
+  :root{--btn:46px}
+  #minimap{width:92px;height:92px}
+  .b-fire{bottom:calc(var(--hud-pad) + 58px)}
+  .b-aim{bottom:calc(var(--hud-pad) + 130px)}
+  .b-jump{bottom:calc(var(--hud-pad) + 148px)}
+  .b-reload{bottom:calc(var(--hud-pad) + 66px);right:calc(var(--side-pad) + 134px)}
+  .b-firel{bottom:calc(var(--hud-pad) + 160px)}
+  #pickup-prompt{bottom:calc(var(--hud-pad) + 116px);right:calc(var(--side-pad) + 214px)}
+  #quest-chip{top:calc(var(--hud-pad) + 62px)}
+  #kill-feed{top:calc(var(--hud-pad) + 42px)}
+  #coach-hint{bottom:calc(var(--hud-pad) + 70px)}
+}
+#hud.airborne .weapon-slots{visibility:hidden}
+/* thumbs do not flip with the language: vitals read left-to-right like every BR */
+.hud-vitals{direction:ltr;width:min(290px,30vw)}
+.ws-name{direction:auto}
+.b-firel{left:calc(var(--side-pad) + 150px);bottom:calc(var(--hud-pad) + 172px)}
+#coach-hint{top:calc(var(--hud-pad) + 98px);bottom:auto}
+@media (max-height:460px){
+  .b-firel{bottom:calc(var(--hud-pad) + 150px);left:calc(var(--side-pad) + 140px)}
+  #coach-hint{top:calc(var(--hud-pad) + 88px)}
+}
+#toast-stack{top:calc(var(--hud-pad) + 132px)}
+
+/* --- settings: tabs, segmented choices, sliders, switches --- */
+.settings-card{width:min(640px,94vw);max-height:calc(100dvh - 24px);display:flex;flex-direction:column;gap:10px;
+  padding:14px 18px;border-radius:18px;background:rgba(16,11,30,.92);border:1px solid rgba(122,92,255,.35);box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.set-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.set-head h2{margin:0;font-size:20px}
+.set-back{width:auto;min-height:38px;padding:6px 18px}
+.set-tabs{display:flex;gap:4px;padding:3px;border-radius:12px;background:rgba(255,255,255,.05)}
+.set-tab{flex:1;min-height:36px;border:0;border-radius:9px;background:transparent;color:var(--muted);font:600 13px inherit;cursor:pointer}
+.set-tab.on{background:var(--purple);color:#fff}
+.set-body{display:flex;flex-direction:column;gap:2px;overflow-y:auto;padding-inline-end:4px;min-height:0}
+.set-row{display:flex;align-items:center;justify-content:space-between;gap:14px;min-height:46px;padding:4px 2px;border-bottom:1px solid rgba(255,255,255,.06)}
+.set-label{font-size:14px;color:var(--text)}
+.seg{display:flex;gap:3px;padding:3px;border-radius:10px;background:rgba(255,255,255,.06);flex:none}
+.seg-opt{min-width:52px;min-height:32px;padding:0 10px;border:0;border-radius:7px;background:transparent;color:var(--muted);font:600 12px inherit;cursor:pointer}
+.seg-opt.on{background:rgba(232,189,71,.22);color:var(--gold-soft);box-shadow:inset 0 0 0 1px rgba(232,189,71,.55)}
+.range-wrap{display:flex;align-items:center;gap:10px;flex:0 1 260px}
+.range-wrap input{flex:1;accent-color:var(--gold);height:30px;min-width:0}
+.range-wrap output{min-width:42px;text-align:end;font:600 12px inherit;color:var(--gold-soft);font-variant-numeric:tabular-nums}
+.switch{position:relative;width:46px;height:26px;flex:none;cursor:pointer}
+.switch input{position:absolute;inset:0;opacity:0;margin:0;cursor:pointer}
+.switch i{position:absolute;inset:0;border-radius:13px;background:rgba(255,255,255,.14);transition:background .15s;pointer-events:none}
+.switch i::after{content:'';position:absolute;top:3px;inset-inline-start:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform .15s}
+.switch input:checked + i{background:var(--purple)}
+.switch input:checked + i::after{transform:translateX(20px)}
+[dir=rtl] .switch input:checked + i::after{transform:translateX(-20px)}
+.set-action{margin-top:8px}
+@media (max-height:460px){
+  .settings-card{padding:10px 14px;gap:6px}
+  .set-row{min-height:40px}
+  .set-tab{min-height:30px}
+}
+
+/* --- layout editor: the live HUD, every control shown, draggable --- */
+#layout-editor{position:fixed;inset:0;z-index:60;pointer-events:none}
+#layout-editor.hidden{display:none}
+.le-bar{pointer-events:auto;position:absolute;top:calc(var(--hud-pad) + 4px);left:50%;transform:translateX(-50%);
+  display:flex;align-items:center;gap:10px;padding:6px 10px;border-radius:14px;background:rgba(16,11,30,.9);border:1px solid rgba(232,189,71,.5);
+  max-width:94vw;flex-wrap:wrap;justify-content:center}
+.le-title{font-weight:800;color:var(--gold-soft);font-size:13px}
+.le-sel{font-size:12px;color:var(--muted);min-width:90px}
+.le-size{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.le-size input{width:110px;accent-color:var(--gold)}
+.le-bar .menu-btn{width:auto;min-height:34px;padding:4px 14px;font-size:13px}
+#hud.editing .tbtn,#hud.editing #pickup-prompt{opacity:var(--btn-op) !important;pointer-events:auto !important;display:grid}
+#hud.editing #pickup-prompt{display:flex}
+#hud.editing .tbtn{outline:1px dashed rgba(232,189,71,.55);outline-offset:3px;touch-action:none;cursor:grab}
+#hud.editing .tbtn.le-on{outline:2px solid var(--gold);background:rgba(232,189,71,.25)}
+#hud.editing #joystick-zone,#hud.editing #btn-pause{pointer-events:none}
+#pickup-prompt{transform:translate(var(--dx, 0px), var(--dy, 0px)) scale(var(--us, 1))}
+/* settings on a landscape phone: two columns so a whole tab fits without scrolling */
+@media (min-width:700px) and (max-height:520px){
+  .settings-card{width:min(900px,96vw)}
+  .set-body{display:grid;grid-template-columns:1fr 1fr;column-gap:22px;align-content:start}
+  .set-row{min-height:40px}
+  .set-label{font-size:13px}
+  .set-action{grid-column:1 / -1;min-height:40px}
+  .set-head h2{font-size:17px}
+}
+/* compact editor bar: one line */
+.le-bar{flex-wrap:nowrap;gap:8px;padding:4px 8px}
+.le-sel{font-size:11px;max-width:24vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.le-size input{width:90px}
+.le-bar .menu-btn{min-height:30px;padding:2px 12px;font-size:12px}
+@media (max-height:460px){ .le-title{display:none} }
+#damage-vignette.low{opacity:1;animation:lowhp 1.1s ease-in-out infinite;
+  box-shadow:inset 0 0 90px 20px rgba(255,40,70,.42)}
+@keyframes lowhp{50%{box-shadow:inset 0 0 60px 8px rgba(255,40,70,.22)}}

@@ -334,13 +334,11 @@ async function main() {
   ok('aim assist pulls the crosshair onto a target', assist.withAssist < assist.without * 0.5,
     `off-target ${assist.withAssist.toFixed(4)} rad with assist vs ${assist.without.toFixed(4)} without`);
   ok('aim assist can be turned off in settings', await page.evaluate(async () => {
-    const box = document.getElementById('set-assist');
-    box.checked = false;
-    box.dispatchEvent(new Event('change'));
+    const S = globalThis.SAEED;
+    S.settings.set('assist', false);
     await new Promise((r) => setTimeout(r, 100));
-    const off = globalThis.SAEED.game.aimAssistEnabled === false;
-    box.checked = true;
-    box.dispatchEvent(new Event('change'));
+    const off = S.game.aimAssistEnabled === false;
+    S.settings.set('assist', true);
     await new Promise((r) => setTimeout(r, 100));
     return off && globalThis.SAEED.game.aimAssistEnabled === true;
   }));
@@ -385,17 +383,31 @@ async function main() {
     `hip ${cross.hip}px vs ads ${cross.ads}px`);
 
   // ---------- loot pickup on touch ----------
-  const pickedUp = await page.evaluate(async () => {
+  // Auto pick-up is on by default: walking over supplies bags them.
+  const auto = await page.evaluate(async () => {
     const g = globalThis.SAEED.game;
+    g.player.inventory.medkits = 0;
     const item = g.loot.items.find((i) => !i.taken && i.type === 'medkit');
-    g.player.pos.x = item.x; g.player.pos.z = item.z;
-    await new Promise((r) => setTimeout(r, 150));
+    g.player.pos.x = item.x; g.player.pos.z = item.z; g.player.pos.y = item.ground ?? 0;
+    const t0 = performance.now();
+    while (!item.taken && performance.now() - t0 < 5000) await new Promise((r) => setTimeout(r, 100));
+    return { taken: item.taken, kits: g.player.inventory.medkits };
+  });
+  ok('auto pick-up bags a med kit just by walking over it', auto.taken && auto.kits === 1, JSON.stringify(auto));
+  // With it off (Settings), the tappable pill appears and INTERACT picks it up.
+  const pickedUp = await page.evaluate(async () => {
+    const S = globalThis.SAEED, g = S.game;
+    S.settings.set('autoPickup', false);
+    const item = g.loot.items.find((i) => !i.taken && i.type === 'medkit');
+    g.player.pos.x = item.x; g.player.pos.z = item.z; g.player.pos.y = item.ground ?? 0;
+    await new Promise((r) => setTimeout(r, 400));
     const prompt = !document.getElementById('pickup-prompt').classList.contains('hidden');
     const beforeKits = g.player.inventory.medkits;
-    globalThis.SAEED.input.state.interact = true;
-    await new Promise((r) => setTimeout(r, 200));
-    return { prompt, beforeKits, afterKits: g.player.inventory.medkits, taken: item.taken,
-      state: g.state, hp: Math.round(g.player.health.value) };
+    S.input.state.interact = true;
+    await new Promise((r) => setTimeout(r, 300));
+    const res = { prompt, beforeKits, afterKits: g.player.inventory.medkits, taken: item.taken, state: g.state };
+    S.settings.set('autoPickup', true);
+    return res;
   });
   ok('walking onto loot shows the التقاط prompt', pickedUp.prompt, JSON.stringify(pickedUp));
   ok('INTERACT picks the med kit up', pickedUp.afterKits === pickedUp.beforeKits + 1 && pickedUp.taken);
@@ -680,6 +692,73 @@ async function main() {
   await page.locator('#story-skip').tap();
   await sleep(500);
   ok('SKIP returns to the lobby', await page.isVisible('#menu') && await page.evaluate(() => globalThis.SAEED.game.cinematic === null));
+
+  // ---------- v3.1: settings, layout editor, first person ----------
+  await page.locator('#btn-settings').tap();
+  await sleep(500);
+  const tabs = await page.evaluate(() => [...document.querySelectorAll('.set-tab')].map((t) => t.dataset.tab));
+  ok('settings has graphics, controls, HUD and sound tabs', tabs.join() === 'graphics,controls,hud,audio', tabs.join());
+  ok('graphics tab offers quality, frame rate and camera', await page.evaluate(() =>
+    ['set-quality', 'set-fpsCap', 'set-camera', 'set-brightness'].every((id) => document.getElementById(id))));
+  await page.screenshot({ path: `${SHOTS}18-settings.png` });
+  await page.locator('.set-tab[data-tab="controls"]').tap();
+  await sleep(250);
+  ok('controls tab has look, ADS and scope sensitivity', await page.evaluate(() =>
+    ['set-sensitivity', 'set-adsSensitivity', 'set-scopeSensitivity', 'set-autoPickup'].every((id) => document.getElementById(id))));
+  await page.locator('.set-tab[data-tab="hud"]').tap();
+  await sleep(250);
+  await page.evaluate(() => {
+    const el = document.getElementById('set-buttonOpacity');
+    el.value = '0.45'; el.dispatchEvent(new Event('input'));
+  });
+  ok('button opacity applies to the HUD', await page.evaluate(() =>
+    getComputedStyle(document.documentElement).getPropertyValue('--btn-op').trim() === '0.45'));
+  await page.evaluate(() => globalThis.SAEED.settings.set('buttonOpacity', 0.7));
+  await page.locator('#btn-layout').tap();
+  await sleep(600);
+  const fireBox0 = await page.locator('[data-action="fire"]').boundingBox();
+  ok('the layout editor shows every control, even contextual ones', await page.evaluate(() =>
+    getComputedStyle(document.querySelector('[data-action="reload"]')).opacity !== '0'
+    && !document.getElementById('layout-editor').classList.contains('hidden')));
+  await page.mouse.move(fireBox0.x + fireBox0.width / 2, fireBox0.y + fireBox0.height / 2);
+  await page.mouse.down();
+  for (let i = 1; i <= 6; i++) { await page.mouse.move(fireBox0.x + fireBox0.width / 2 - i * 10, fireBox0.y + fireBox0.height / 2 - i * 6); await sleep(30); }
+  await page.mouse.up();
+  await sleep(200);
+  const fireBox1 = await page.locator('[data-action="fire"]').boundingBox();
+  const saved = await page.evaluate(() => globalThis.SAEED.settings.get('layout').fire);
+  ok('dragging a control in the editor moves it and saves the spot',
+    Math.abs(fireBox1.x - fireBox0.x + 60) < 4 && saved && saved.dx === -60 && saved.dy === -36, JSON.stringify(saved));
+  await page.screenshot({ path: `${SHOTS}19-layout-editor.png` });
+  await page.locator('#le-reset').tap();
+  await sleep(200);
+  ok('Default puts the controls back', await page.evaluate(() => Object.keys(globalThis.SAEED.settings.get('layout')).length === 0));
+  await page.locator('#le-done').tap();
+  await sleep(300);
+  ok('saving the layout returns to settings', await page.isVisible('#settings'));
+  await page.locator('#btn-settings-back').tap();
+  await sleep(300);
+
+  const fpp = await page.evaluate(async () => {
+    const S = globalThis.SAEED, g = S.game;
+    S.settings.set('camera', 'fpp');
+    S.startMatch();
+    g.startMatch({ ground: true, drop: { ...g.map.spawns.player } });
+    g._equipWeaponModel();
+    await new Promise((r) => setTimeout(r, 800));
+    const res = { model: g.playerView.root.visible, vm: !!g.viewModel?.root.visible, eye: g.cam.eyeMode,
+      reloadHidden: document.querySelector('[data-action="reload"]').classList.contains('ctx-off'),
+      grenadeHidden: document.querySelector('[data-action="grenade"]').classList.contains('ctx-off') };
+    S.settings.set('camera', 'tpp');
+    await new Promise((r) => setTimeout(r, 400));
+    res.back = g.playerView.root.visible && !g.viewModel;
+    S.goMenu();
+    return res;
+  });
+  ok('first-person camera hides Saeed and shows the gun in hand', !fpp.model && fpp.vm && fpp.eye, JSON.stringify(fpp));
+  ok('third person comes back from settings', fpp.back, JSON.stringify(fpp));
+  ok('a full magazine hides RELOAD and no frags hides the grenade button', fpp.reloadHidden && fpp.grenadeHidden, JSON.stringify(fpp));
+  await sleep(300);
   await page.evaluate(() => globalThis.SAEED.startMatch());
   await sleep(500);
 

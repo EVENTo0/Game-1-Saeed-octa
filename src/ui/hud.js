@@ -88,7 +88,7 @@ export class HUD {
   /** Floating damage number at a screen position (CSS px). */
   damageNumber(x, y, amount, kill = false) {
     const box = this.el.damageNums;
-    if (!box || !(amount > 0)) return;
+    if (!box || !(amount > 0) || this.showDamageNumbers === false) return;
     const d = document.createElement('div');
     d.className = `dmg-num${kill ? ' kill' : amount >= 40 ? ' big' : ''}`;
     d.textContent = String(Math.round(amount));
@@ -170,6 +170,8 @@ export class HUD {
     const hp = Math.ceil(p.health.value);
     this.el.health.style.width = `${p.health.ratio * 100}%`;
     this.el.health.classList.toggle('low', p.health.ratio < 0.35);
+    // low health reads at a glance: the screen edge pulses red, as in every modern BR
+    this.el.vignette.classList.toggle('low', p.alive && p.health.ratio < 0.3);
     this.el.healthValue.textContent = String(hp);
     const armor = p.inventory.armor ?? 0;
     if (this.el.armorBar) {
@@ -199,9 +201,21 @@ export class HUD {
     const gc = document.getElementById('grenade-count');
     if (gc) {
       gc.textContent = String(p.inventory.grenades);
-      document.getElementById('btn-grenade').classList.toggle('empty', p.inventory.grenades <= 0 || !!p.vehicle);
       document.getElementById('btn-grenade').classList.toggle('toggled', !!game._aimingGrenade);
     }
+    // Contextual controls: a button is on screen only while it can do something.
+    const b = this._btns ??= Object.fromEntries([...document.querySelectorAll('#hud [data-action]')].map((x) => [x.dataset.action, x]));
+    const onFoot = !p.vehicle && !p.inPlane && !p.dropping;
+    const ctx = (a, on) => b[a]?.classList.toggle('ctx-off', !on);
+    ctx('reload', onFoot && !!w && !w.isMelee && !w.reloading && w.mag < w.def.magSize && w.reserve > 0);
+    ctx('grenade', onFoot && p.inventory.grenades > 0);
+    ctx('heal', onFoot && p.inventory.medkits > 0 && p.health.value < p.health.max);
+    ctx('aim', onFoot && !!w);
+    ctx('fire', onFoot);
+    ctx('firel', onFoot);
+    ctx('jump', onFoot);
+    ctx('crouch', onFoot);
+    this.el.hud.classList.toggle('airborne', p.inPlane || p.dropping);
     // driving: speedometer, and the weapon buttons step back
     const sp = document.getElementById('speedo');
     if (sp) {
@@ -225,11 +239,14 @@ export class HUD {
     if (this.el.kills) this.el.kills.textContent = String(p.kills);
     // rarity colour on the weapon card, and the holstered weapon underneath
     const RAR = { common: '#b8c2d6', rare: '#8a6bff', epic: '#f2c14e' };
-    if (this.el.weaponPanel) this.el.weaponPanel.style.borderInlineStartColor = w ? (RAR[w.def.rarity] ?? RAR.common) : 'transparent';
+    if (this.el.weaponPanel) this.el.weaponPanel.style.setProperty('--rar', w ? (RAR[w.def.rarity] ?? RAR.common) : 'transparent');
     const other = p.inventory.slots.find((s) => s !== w);
     if (this.el.slot2) {
       this.el.slot2.classList.toggle('hidden', !other);
-      if (other) this.el.slot2Name.textContent = `⇄ ${this.i18n.lang === 'ar' ? other.def.nameAr : other.def.nameEn}`;
+      if (other) {
+        this.el.slot2Name.textContent = `⇄ ${this.i18n.lang === 'ar' ? other.def.nameAr : other.def.nameEn}`;
+        this.el.slot2.style.setProperty('--rar', RAR[other.def.rarity] ?? RAR.common);
+      }
     }
 
     // Crosshair opens with the shot cone the weapon ACTUALLY has right now, so

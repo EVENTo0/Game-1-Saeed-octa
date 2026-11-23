@@ -59,7 +59,7 @@ export class TouchControls {
     this.input.syncMove();
     this.buttonTouches.forEach((btn) => this._buttonUp(btn));
     this.buttonTouches.clear();
-    if (this.base) this.base.style.opacity = '0';
+    if (this.base) { this.base.style.opacity = ''; this.base.style.left = ''; this.base.style.top = ''; }   // back to its faint home spot
     if (this.knob) this.knob.style.transform = 'translate(-50%, -50%)';
   }
   _buttonAt(target) {
@@ -69,7 +69,7 @@ export class TouchControls {
     const s = this.input.state;
     btn.classList.add('pressed');
     switch (btn.dataset.action) {
-      case 'fire': s.fire = true; break;
+      case 'fire': case 'firel': s.fire = true; break;
       case 'aim': s.aim = !s.aim; btn.classList.toggle('toggled', s.aim); break;
       case 'jump': s.jump = true; break;
       case 'crouch': s.crouch = !s.crouch; btn.classList.toggle('toggled', s.crouch); break;
@@ -85,7 +85,7 @@ export class TouchControls {
   _buttonUp(btn) {
     const s = this.input.state;
     btn.classList.remove('pressed');
-    if (btn.dataset.action === 'fire') s.fire = false;
+    if (btn.dataset.action === 'fire' || btn.dataset.action === 'firel') s.fire = false;
     if (btn.dataset.action === 'grenade') s.grenade = false;
   }
 
@@ -98,7 +98,7 @@ export class TouchControls {
       this.buttonTouches.set(e.pointerId, btn);
       this._buttonDown(btn);
       // fire and grenade both keep aiming while the thumb drags off the button
-      if (btn.dataset.action === 'fire' || btn.dataset.action === 'grenade') this.fireLook = { id: e.pointerId, x: e.clientX, y: e.clientY };
+      if (['fire', 'firel', 'grenade'].includes(btn.dataset.action)) this.fireLook = { id: e.pointerId, x: e.clientX, y: e.clientY };
       return;
     }
     // other controls (pause, menus) keep their own taps
@@ -178,7 +178,7 @@ export class TouchControls {
       this.input.touch.x = 0; this.input.touch.z = 0; this.input.touch.active = false;
       this.input.state.run = false;
       this.input.syncMove();
-      if (this.base) this.base.style.opacity = '0';
+      if (this.base) { this.base.style.opacity = ''; this.base.style.left = ''; this.base.style.top = ''; }   // back to its faint home spot
       if (this.knob) this.knob.style.transform = 'translate(-50%, -50%)';
       return;
     }

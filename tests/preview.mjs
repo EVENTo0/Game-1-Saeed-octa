@@ -88,6 +88,19 @@ async function main() {
   await shot('القصة ٥', 'Story 5/5: Saeed decides');
   check('story plays five panels', await ev(() => document.getElementById('story-text').textContent.length > 10));
   await page.locator('#story-skip').tap(); await sleep(900);
+
+  // ---- v3.1: settings and the HUD layout editor ----
+  await page.locator('#btn-settings').tap(); await sleep(700);
+  await shot('الإعدادات: الرسوميات', 'Settings › Graphics: quality, frame-rate cap 30/60/max, third/first-person camera, brightness, FPS counter');
+  await page.locator('.set-tab[data-tab="controls"]').tap(); await sleep(400);
+  await shot('الإعدادات: التحكم', 'Settings › Controls: look, ADS and scope sensitivity, aim assist, auto pick-up, left fire button, vibration');
+  await page.locator('.set-tab[data-tab="hud"]').tap(); await sleep(400);
+  await shot('الإعدادات: الواجهة', 'Settings › HUD: customise layout, button size and opacity, HUD size, damage numbers');
+  await page.locator('#btn-layout').tap(); await sleep(900);
+  await shot('تخصيص الأزرار', 'Layout editor: the live HUD with every control showing; drag to move, select to resize, saved per button');
+  check('layout editor opens', await ev(() => !document.getElementById('layout-editor').classList.contains('hidden')));
+  await page.locator('#le-done').tap(); await sleep(400);
+  await page.locator('#btn-settings-back').tap(); await sleep(700);
   check('lobby lists four outfits', await ev(() => document.querySelectorAll('#skin-list .skin').length) === 4);
   await page.locator('#lang-en').tap(); await sleep(500);
   await shot('Lobby — English', 'Language toggle flips the whole lobby to LTR');
@@ -313,6 +326,19 @@ async function main() {
   await sleep(1000);
   await shot('شكراً يا سعيد', 'Delivered: Mansour thanks Saeed — full armour, health, two frags and a med kit');
   check('the coffee quest completes', await ev(() => globalThis.SAEED.game.quest.state === 'done'));
+
+  // ---- v3.1: first-person camera ----
+  await ev(() => {
+    const S = globalThis.SAEED, g = S.game, p = g.player, t = g.map.pois.find((x) => x.id === 'town');
+    S.settings.set('camera', 'fpp');
+    p.pos.x = t.x + 6; p.pos.z = t.z + 40; p.pos.y = 0; p.pitch = 0.02;
+    p.yaw = Math.atan2(-(t.x - p.pos.x), -(t.z - p.pos.z));
+  });
+  await sleep(1200);
+  await shot('منظور الشخص الأول', 'First-person camera from Settings: the rifle in hand, the same minimal HUD');
+  check('first person shows the view model', await ev(() => !!globalThis.SAEED.game.viewModel?.root.visible));
+  await ev(() => globalThis.SAEED.settings.set('camera', 'tpp'));
+  await sleep(400);
 
   // ---- v2.2: scope, hiding, the new locations ----
   await ev(() => {

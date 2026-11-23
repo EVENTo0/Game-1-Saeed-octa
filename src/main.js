@@ -9,6 +9,9 @@ import { Profile, SKINS } from './meta/progression.js';
 import { challengeView, dayIndex } from './meta/challenges.js';
 import { CONFIG } from './core/config.js';
 import { CrashGuard } from './core/crashGuard.js';
+import { Settings, shouldRender } from './ui/settings.js';
+import { buildSettingsScreen } from './ui/settingsScreen.js';
+import { LayoutEditor, applyLayout } from './ui/layoutEditor.js';
 
 const $ = (id) => document.getElementById(id);
 const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
@@ -21,13 +24,14 @@ const hud = new HUD(i18n);
 const screens = new Screens();
 const canvas = $('game-canvas');
 
-const prefs = loadPrefs();
+const settings = new Settings(safeStorage());
+const prefs = settings.data;          // read-only view; write through settings.set()
 const touchMode = isTouchDevice();
 // If the last session was cut off mid-match (a phone killing the tab for
 // memory), come back in performance mode instead of crashing again.
 const guard = new CrashGuard(safeStorage());
 const recoveredFromCrash = guard.consumeCrash() && prefs.quality !== 'low';
-if (recoveredFromCrash) { prefs.quality = 'low'; savePrefs(prefs); }
+if (recoveredFromCrash) settings.set('quality', 'low');
 const game = new Game(canvas, { audio, hud, i18n, quality: prefs.quality, mobile: touchMode });
 const input = new InputManager();
 input.sensitivity = prefs.sensitivity;
@@ -51,14 +55,6 @@ setHaptics(prefs.haptics !== false);
 hud.setTouch(touchMode);
 touch.setEnabled(false);
 
-function loadPrefs() {
-  const d = { sensitivity: 1, quality: 'med', volume: 0.5, assist: true, haptics: true };
-  try { return { ...d, ...JSON.parse(localStorage.getItem('saeed_prefs') || '{}') }; }
-  catch { return d; }
-}
-function savePrefs(p) {
-  try { localStorage.setItem('saeed_prefs', JSON.stringify(p)); } catch { /* private mode */ }
-}
 
 // ------------------------------------------------------------------ flow
 let uiState = 'splash';
@@ -277,8 +273,9 @@ function guardInput(el, ms = 300) {
   el._guard = setTimeout(() => el.classList.remove('no-input'), ms);
 }
 function goSettings() {
+  settingsFrom = uiState === 'paused' ? 'paused' : 'menu';
   uiState = 'settings';
-  qual.value = prefs.quality;
+  settingsUI.render();
   const e = guard.lastError();
   $('diag').textContent = `v${__APP_VERSION__}` + (e ? ` · ${i18n.t('lastError')}: ${e.msg.split('\n')[0].slice(0, 90)}` : '');
   screens.show('settings');
@@ -411,8 +408,13 @@ $('splash').addEventListener('click', () => {
   if (!profile.data.storySeen && !navigator.webdriver) story.open(); else goMenu();
 });
 $('btn-play').addEventListener('click', startMatch);
+// the pickup pill is tappable; a mouse click does the same as E (touch is handled by TouchControls)
+$('pickup-prompt').addEventListener('click', () => { if (!touchMode) input.state.interact = true; });
 $('btn-settings').addEventListener('click', goSettings);
-$('btn-settings-back').addEventListener('click', () => (uiState === 'paused' ? screens.show('pause') : goMenu()));
+$('btn-settings-back').addEventListener('click', () => {
+  if (settingsFrom === 'paused') { uiState = 'paused'; screens.show('pause'); guardInput($('pause')); } else goMenu();
+});
+$('btn-pause-settings').addEventListener('click', goSettings);
 $('btn-pause').addEventListener('click', () => { pauseMatch(); guardInput($('pause')); });
 $('btn-resume').addEventListener('click', resumeMatch);
 $('btn-restart').addEventListener('click', startMatch);
@@ -436,30 +438,59 @@ $('lang-ar').addEventListener('click', () => { i18n.set('ar'); syncLangButtons()
 $('lang-en').addEventListener('click', () => { i18n.set('en'); syncLangButtons(); renderLobby(); });
 syncLangButtons();
 
-// settings
-const sens = $('set-sens'), qual = $('set-quality'), vol = $('set-volume');
-sens.value = String(prefs.sensitivity);
-qual.value = prefs.quality;
-vol.value = String(prefs.volume);
-audio.setVolume(prefs.volume);
-sens.addEventListener('input', () => {
-  prefs.sensitivity = parseFloat(sens.value); input.sensitivity = prefs.sensitivity; savePrefs(prefs);
-});
-qual.addEventListener('change', () => { prefs.quality = qual.value; game.setQuality(qual.value); savePrefs(prefs); });
-vol.addEventListener('input', () => { prefs.volume = parseFloat(vol.value); audio.setVolume(prefs.volume); savePrefs(prefs); });
+// ------------------------------------------------------------------ settings
+let settingsFrom = 'menu';
+let fpsShown = 0;
+const docStyle = document.documentElement.style;
+/** One place that turns a stored preference into live behaviour. */
+function applySetting(k, v) {
+  switch (k) {
+    case 'quality': game.setQuality(v); break;
+    case 'brightness': game.setBrightness?.(v); break;
+    case 'showFps': hud.setFps(fpsShown, v); break;
+    case 'camera': game.setCameraMode?.(v); break;
+    case 'sensitivity': input.sensitivity = v; break;
+    case 'assist': game.aimAssistEnabled = touchMode && v; break;
+    case 'autoPickup': game.autoPickup = v; break;
+    case 'leftFire': $('hud').classList.toggle('no-left-fire', !v); break;
+    case 'haptics': setHaptics(v); break;
+    case 'buttonSize': docStyle.setProperty('--btn-k', String(v)); break;
+    case 'buttonOpacity': docStyle.setProperty('--btn-op', String(v)); break;
+    case 'hudScale': docStyle.setProperty('--hud-k', String(v)); break;
+    case 'damageNumbers': hud.showDamageNumbers = v; break;
+    case 'layout': applyLayout(v); break;
+    case 'volume': audio.setVolume(v); break;
+    default: break;
+  }
+}
+for (const k of Object.keys(prefs)) applySetting(k, prefs[k]);
+settings.onChange(applySetting);
 
-const assistBox = $('set-assist'), hapticsBox = $('set-haptics');
-assistBox.checked = prefs.assist !== false;
-hapticsBox.checked = prefs.haptics !== false;
-assistBox.addEventListener('change', () => {
-  prefs.assist = assistBox.checked;
-  game.aimAssistEnabled = touchMode && prefs.assist;
-  savePrefs(prefs);
+const editor = new LayoutEditor(settings, i18n, {
+  onClose: () => {
+    hud.show(false);
+    hud.setTouch(touchMode);
+    uiState = 'settings';
+    screens.show('settings');
+    settingsUI.render();
+  },
 });
-hapticsBox.addEventListener('change', () => {
-  prefs.haptics = hapticsBox.checked;
-  setHaptics(prefs.haptics);
-  savePrefs(prefs);
+const settingsUI = buildSettingsScreen($('settings'), settings, i18n, {
+  onAction: (id) => {
+    if (id === 'btn-layout') {
+      uiState = 'layout';
+      screens.hideAll();
+      hud.show(true);
+      editor.open();
+    } else if (id === 'btn-layout-reset') {
+      settings.resetLayout();
+      hud.toast(i18n.t('layoutReset'));
+    } else if (id === 'btn-reset-all') {
+      settings.resetAll();
+      settingsUI.render();
+    }
+  },
+  onLang: (code) => { i18n.set(code); syncLangButtons(); renderLobby(); },
 });
 
 // keyboard shortcuts that live outside gameplay
@@ -468,7 +499,7 @@ window.addEventListener('keydown', (e) => {
     if (uiState === 'playing') pauseMatch();
     else if (uiState === 'paused') resumeMatch();
   }
-  if (e.code === 'KeyP') hud.setFps(0, !$('fps-counter').classList.contains('hidden') ? false : true);
+  if (e.code === 'KeyP') settings.set('showFps', !settings.get('showFps'));
 });
 document.addEventListener('pointerlockchange', () => {
   if (uiState === 'playing' && !touchMode && !document.pointerLockElement) pauseMatch();
@@ -545,6 +576,7 @@ let fpsAcc = 0, fpsFrames = 0, fps = 0;
 
 function frame(now) {
   requestAnimationFrame(frame);
+  if (!shouldRender(now, last, prefs.fpsCap)) return;     // frame-rate cap (30 / 60 / max)
   let dt = (now - last) / 1000;
   last = now;
   if (dt > 0.1) dt = 0.1;              // tab-switch guard
@@ -556,8 +588,12 @@ function frame(now) {
     game.update(dt * game.timeScale, cmd);
     coach.update(dt);
     story.update(dt);
-    input.lookScale = game.lookScale();
-    if (uiState === 'playing') game.adaptResolution(fps || 60, dt);
+    // look speed: base sensitivity, then the ADS and scope multipliers from Settings
+    const pl = game.player;
+    input.lookScale = game.lookScale() * (pl.scopeFov ? prefs.scopeSensitivity : pl.aiming ? prefs.adsSensitivity : 1);
+    // a 30 fps cap is a choice, not a slow phone: judge resolution against the cap
+    const cap = prefs.fpsCap;
+    if (uiState === 'playing') game.adaptResolution(cap && cap < 60 ? (fps || 60) * (60 / cap) : (fps || 60), dt);
     if (uiState === 'playing' || uiState === 'won' || uiState === 'lost') hud.update(game);
     game.render();
   } catch (err) {
@@ -568,7 +604,8 @@ function frame(now) {
   if (fpsAcc >= 0.5) {
     fps = Math.round(fpsFrames / fpsAcc);
     fpsAcc = 0; fpsFrames = 0;
-    hud.setFps(fps, !$('fps-counter').classList.contains('hidden'));
+    fpsShown = fps;
+    hud.setFps(fps, prefs.showFps);
   }
 }
 requestAnimationFrame(frame);
@@ -576,6 +613,6 @@ requestAnimationFrame(frame);
 goSplash();
 
 // Expose for the smoke test / debugging — not used by gameplay.
-globalThis.SAEED = { game, input, hud, i18n, profile, startMatch, goMenu, pauseMatch, resumeMatch, setDrop: (p, { routeThrough = true } = {}) => {
+globalThis.SAEED = { game, input, hud, i18n, profile, settings, editor, startMatch, goMenu, pauseMatch, resumeMatch, setDrop: (p, { routeThrough = true } = {}) => {
     dropPoint = p; if (p && routeThrough) game.planRoute(p); drawDropMap();
   } };

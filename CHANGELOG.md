@@ -1,5 +1,53 @@
 # Changelog
 
+## 3.1.0
+
+The owner rated v3.0 at 2/10. The main complaint was the play screen: it was
+all buttons, the buttons were big and covered the view, and health and the
+other indicators were unclear. They also asked for display settings. Compared
+against how 2026 mobile shooters handle this (PUBG Mobile, CoD Mobile, Delta
+Force, Blood Strike), and rebuilt to match.
+
+- **Minimal HUD**:
+  - Small, translucent outline buttons with line icons replace the filled
+    purple discs.
+  - Default size is 50 px (46 px on short screens). Fire is 1.5×.
+  - Buttons are 70% opaque by default.
+- **Contextual controls**: a button shows only while it can do something.
+  - RELOAD appears when the magazine isn't full.
+  - The frag button needs a grenade. The med kit button needs a kit and
+    missing health.
+  - Weapon buttons stand down while flying, skydiving or driving.
+  - The ✋ and ⇄ buttons are gone. Picking up and riding use a tappable pill
+    that names the item, and you swap weapons by tapping the second slot.
+- **Vitals bottom-centre**: weapon slots with ammo and a rarity edge sit over
+  a thin armour line and health bar, as in PUBG Mobile. The kill feed moved
+  top-right. Chips, minimap, compass and quest text are smaller and quieter.
+- **Joystick**: a faint ring marks its home position and follows the thumb.
+- **Left fire button**, as in CoD Mobile (can be turned off).
+- **Auto pick-up** (on by default): supplies are collected by walking over
+  them. Weapons auto-fill an empty slot; otherwise they wait for a tap.
+- **Settings, rebuilt with tabs**:
+  - Graphics: quality, frame-rate cap 30/60/max, third- or first-person
+    camera, brightness, FPS counter.
+  - Controls: look, ADS and scope sensitivity, aim assist, auto pick-up,
+    left fire, vibration.
+  - HUD: button size, button opacity, HUD size, damage numbers, and the
+    layout editor.
+  - Sound and language, and reset all.
+  - Settings are now also reachable from the pause menu.
+- **HUD layout editor**: the real HUD with every control showing. Drag any
+  button to move it, select one to resize it. Saved per button, with a reset
+  to defaults.
+- **First-person camera**: a gun in hand that bobs and kicks, and no
+  character model in the way. The scope, the plane and driving stay as
+  before.
+- **Tests**:
+  - 138 unit tests. The 7 new ones cover the settings schema, clamping,
+    storage, layout bounds and frame pacing.
+  - New smoke checks for settings, the layout editor drag, auto pick-up,
+    contextual buttons and first person.
+
 ## 3.0.0
 
 The owner rated v2.2 at 1/10 and asked for every part to reach 10/10: interface,

@@ -222,6 +222,11 @@ export class Game {
     this.scene.add(this.lobbyLight);
     this.scene.add(this.lobbyLight.target);
 
+    // first-person weapon view model: the held gun, parented to the camera
+    this.scene.add(this.cam.camera);
+    this.viewModel = null;
+    this._vmKick = 0;
+
     this.parachute = buildParachute();
     this.scene.add(this.parachute.root);
 
@@ -644,6 +649,27 @@ export class Game {
     if (!w) return;
     this.weaponMesh = buildWeaponModel(w.id);
     socket.add(this.weaponMesh.root);
+    this._buildViewModel();
+  }
+
+  _buildViewModel() {
+    const cam = this.cam.camera;
+    if (this.viewModel) { cam.remove(this.viewModel.root); this.viewModel.dispose?.(); this.viewModel = null; }
+    const w = this.player.inventory.weapon;
+    if (!w || !this.cam.firstPerson) return;
+    this.viewModel = buildWeaponModel(w.id);
+    const r = this.viewModel.root;
+    r.rotation.y = Math.PI;                   // models point down +Z, the camera looks down -Z
+    r.scale.setScalar(0.62);
+    r.position.set(0.17, -0.17, -0.36);
+    r.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.renderOrder = 5; } });
+    cam.add(r);
+  }
+
+  setBrightness(v) { this.renderer.toneMappingExposure = v; }
+  setCameraMode(mode) {
+    this.cam.firstPerson = mode === 'fpp';
+    this._buildViewModel();
   }
 
   get aliveBots() { return this.bots.filter((b) => b.alive).length; }
@@ -778,7 +804,18 @@ export class Game {
     // --- loot ---
     this.nearbyLoot = (this.player.dropping || this.player.inPlane || p.vehicle) ? null
       : this.loot.nearest(this.player.pos.x, this.player.pos.z, undefined, this.player.pos.y);
-    if (interact && this.nearbyLoot) this._pickup(this.nearbyLoot);
+    // Auto pick-up (Settings, on by default): supplies go straight into the
+    // bag; weapons still wait for a tap unless a slot is free.
+    const nl = this.nearbyLoot;
+    if (this.autoPickup && nl && !interact && this.matchTime - (this._autoAt ?? -9) > 0.25) {
+      const inv = p.inventory;
+      const supply = ['ammo', 'medkit', 'armor', 'grenade', 'dallah'].includes(nl.type);
+      if (supply || (nl.type === 'weapon' && inv.slots.length < inv.maxSlots && !inv.slots.some((x) => x.id === nl.weaponId))) {
+        this._autoAt = this.matchTime;
+        this._pickup(nl);
+      }
+    }
+    if (interact && this.nearbyLoot && !this.nearbyLoot.taken) this._pickup(this.nearbyLoot);
     else if (interact && this.nearbyBuggy) this._enterBuggy(this.nearbyBuggy);
 
     // --- bots ---
@@ -899,7 +936,18 @@ export class Game {
       pr.position.set(q.x, CONFIG.drop.planeHeight + 3, q.z);
       pr.rotation.set(0, Math.atan2(this.route.dir.x, this.route.dir.z), Math.sin(this.time * 0.8) * 0.03);
     }
-    root.visible = !p.inPlane && !p.scopeFov;
+    const eye = this.cam.eyeMode && this.state === MatchState.PLAYING;
+    root.visible = !p.inPlane && !p.scopeFov && !eye;
+    if (this.viewModel) {
+      // view model: hidden through a scope, bobs with the stride, kicks on each shot
+      const vm = this.viewModel.root;
+      vm.visible = eye && !p.scopeFov;
+      this._vmKick = Math.max(0, this._vmKick - dt * 9);
+      const bob = p.moving ? Math.sin(this.time * 9) * 0.012 * Math.min(1, p.speed / 4) : 0;
+      const ads = p.aiming ? 1 : 0;
+      vm.position.set(0.17 - ads * 0.17, -0.17 + ads * 0.065 + bob, -0.36 + this._vmKick * 0.05);
+      vm.rotation.x = this._vmKick * 0.12;
+    }
     if (p.vehicle) root.rotation.y = p.vehicle.yaw + Math.PI;
     // buggies (distance-culled like the bots) and grenades in flight
     const cpos = this.cam.camera.position;
@@ -1037,6 +1085,7 @@ export class Game {
 
   _updateOcta(dt) {
     const p = this.player;
+    this.octa.root.visible = !(this.cam.eyeMode && this.state === MatchState.PLAYING);
     const sin = Math.sin(p.yaw), cos = Math.cos(p.yaw);
     const right = { x: cos, z: -sin };
     const fwd = { x: -sin, z: -cos };
@@ -1082,6 +1131,11 @@ export class Game {
   }
 
   _muzzleWorldPos() {
+    if (this.viewModel?.root.visible) {
+      const v = new THREE.Vector3();
+      this.viewModel.muzzle.getWorldPosition(v);
+      return v;
+    }
     if (!this.weaponMesh) return new THREE.Vector3(this.player.pos.x, this.player.eyeY, this.player.pos.z);
     const v = new THREE.Vector3();
     this.weaponMesh.muzzle.getWorldPosition(v);
@@ -1113,6 +1167,7 @@ export class Game {
     const muzzle = this._muzzleWorldPos();
 
     this.stats.shots += 1;
+    this._vmKick = 1;
     let connected = false;
     this.audio.shot(def.class, 0);
     this.effects.muzzleFlash(muzzle, def.class === 'shotgun' ? 1.4 : 1);

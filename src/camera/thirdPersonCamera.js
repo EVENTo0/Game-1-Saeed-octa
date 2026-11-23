@@ -22,14 +22,18 @@ export class ThirdPersonCamera {
     const aiming = player.aiming;
     const wantDist = player.inPlane ? C.planeDistance : player.dropping ? C.dropDistance : player.vehicle ? C.vehicleDistance : aiming ? C.aimDistance : C.distance;
     const scoped = player.scopeFov ?? 0;
-    const wantFov = scoped || (aiming ? C.aimFov : C.fov);
-    // through the scope the camera sits at the eye: first person
-    this.distance = scoped ? 0.02 : damp(this.distance, wantDist, 10, dt);
+    // first-person mode (Settings): on foot only; plane, skydive and driving stay third person
+    const fpp = this.firstPerson && !player.inPlane && !player.dropping && !player.vehicle && player.alive;
+    this.eyeMode = !!(scoped || fpp);
+    const wantFov = scoped || (aiming ? C.aimFov : fpp ? C.fov + 6 : C.fov);
+    // through the scope (or in first person) the camera sits at the eye
+    this.distance = this.eyeMode ? 0.02 : damp(this.distance, wantDist, 10, dt);
     this.camera.fov = damp(this.camera.fov, wantFov, 10, dt);
     this.camera.updateProjectionMatrix();
 
-    const focusY = player.pos.y + player.height * (player.crouching ? 1.05 : 0.95);
-    const shoulder = scoped ? 0 : aiming ? C.shoulder : C.shoulder * 0.55;
+    const focusY = fpp && !scoped ? player.pos.y + player.height * 0.93
+      : player.pos.y + player.height * (player.crouching ? 1.05 : 0.95);
+    const shoulder = this.eyeMode ? 0 : aiming ? C.shoulder : C.shoulder * 0.55;
     const sin = Math.sin(player.yaw), cos = Math.cos(player.yaw);
     // right vector for the shoulder offset
     const rx = cos, rz = -sin;
@@ -72,16 +76,17 @@ export class ThirdPersonCamera {
     }
     if (py < 0.45) py = 0.45;
 
+    if (this.eyeMode) { this.currentDist = 0.02; px = focus.x; py = focus.y; pz = focus.z; }
     if (this.shake > 0) {
-      const s = this.shake * 0.22;
+      const s = this.shake * (this.eyeMode ? 0.08 : 0.22);
       px += (Math.random() - 0.5) * s;
       py += (Math.random() - 0.5) * s;
       pz += (Math.random() - 0.5) * s;
       this.shake = Math.max(0, this.shake - dt * 3.2);
     }
     this.camera.position.set(px, py, pz);
-    if (scoped) {
-      // first person through the scope: look exactly along the aim direction
+    if (this.eyeMode) {
+      // first person (or through the scope): look exactly along the aim direction
       const a = player.aimDir();
       this.camera.lookAt(px + a.x * 10, py + a.y * 10, pz + a.z * 10);
     } else {
