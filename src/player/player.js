@@ -34,6 +34,7 @@ export class Player {
     this.chute = false;
     this.concealed = false;
     this.justLanded = false;
+    this.vehicle = null;
     this.health.reset();
     this.inventory.reset();
     this.kills = 0;
@@ -73,6 +74,10 @@ export class Player {
     if (!this.alive) { this.moving = false; this.speed = 0; return; }
 
     if (this.inPlane) { this.speed = 0; this.moving = false; return; }   // the Game moves the plane
+    if (this.vehicle) {                                // the Game drives the buggy
+      this.speed = 0; this.moving = false; this.aiming = false; this.crouching = false; this.grounded = true;
+      return;
+    }
     if (this.dropping) { this._updateDrop(dt, input, colliders); return; }
 
     this.aiming = !!input.aim;

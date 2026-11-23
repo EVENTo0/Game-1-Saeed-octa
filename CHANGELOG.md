@@ -1,5 +1,56 @@
 # Changelog
 
+## 3.0.0
+
+The owner rated v2.2 at 1/10 and asked for every part to reach 10/10: interface,
+environment, gameplay, characters, presentation and story. This release
+covers all six.
+
+- **Story**: five illustrated panels over live camera shots of the island:
+  Saeed, OCTA, Uncle Mansour's coffee house and the tournament. It plays
+  once on first launch and any time from the lobby (STORY).
+- **Presentation**:
+  - A round title card names the landing location.
+  - Victory: a slow orbit shot of Saeed and OCTA under confetti.
+  - Defeat: the kill-cam runs in slow motion with the colour drained.
+- **Environment**:
+  - A ring of distant mountains with aerial haze.
+  - Thousands of instanced shrubs, grass tufts and stones.
+  - A drifting cloud layer, wind-blown dust and golden-hour light.
+  - The ground reaches under the mountains, so the sky no longer shows
+    through from the plane.
+- **Interface**:
+  - A compass bar with zone, supply drop and objective markers.
+  - Centre chips for zone, alive and kills.
+  - Weapon rarity colours.
+  - A speedometer while driving.
+  - A daily challenge card in the lobby.
+- **Frag grenades**:
+  - Hold the ◆ button to see the throw arc and blast ring. Release to throw.
+  - Grenades bounce off walls and roofs, and the blast is blocked by cover.
+  - Some rivals carry one and lob it where they last saw you. A warning
+    shows when one lands close.
+- **Dune buggies**:
+  - Six are parked beside the roads.
+  - Driving: the stick throttles and steers, and steering tightens with
+    speed. Crashes hurt the buggy and, at high speed, the driver.
+  - Running a rival over takes them out.
+  - Rifle fire is partly absorbed by the roll cage. A wrecked buggy explodes.
+- **Uncle Mansour's coffee (side quest)**:
+  - His dallah is hidden at a different location each match.
+  - Bring it back to him for full armour, full health, two frags and a med
+    kit, plus a thank-you line.
+- **Daily challenges**:
+  - Three a day from a pool of nine, the same for everyone on a given date.
+  - Examples: 5 eliminations, a grenade kill, drive 800 m, deliver the
+    coffee, top 3 twice.
+  - Progress carries across matches, and XP is paid on the results screen.
+- **Tests**:
+  - 131 unit tests. 13 are new: grenade arc, bounce and falloff; buggy
+    driving and crashes; challenge rotation and payout.
+  - 110 smoke checks. 18 are new, covering the story, victory and defeat
+    presentation, grenade kill, driving and the coffee quest end to end.
+
 ## 2.2.1
 
 Stability fix for "the game closes while playing" on phones.

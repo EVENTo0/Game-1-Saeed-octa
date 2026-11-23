@@ -5,9 +5,10 @@ import { WEAPONS } from '../weapons/weapons.js';
 const COLORS = {
   weapon_common: 0xb8c2d6, weapon_rare: 0x8a6bff, weapon_epic: 0xf2c14e,
   ammo: 0xe08a3c, medkit: 0x3fd68a, armor: 0x4aa8ff,
+  grenade: 0x9bbf4a, dallah: 0xffcc33,
 };
 const keyFor = (it) => (it.type === 'weapon' ? `weapon_${WEAPONS[it.weaponId]?.rarity ?? 'common'}` : it.type);
-const isBeamed = (it) => it.special || keyFor(it) === 'weapon_epic';
+const isBeamed = (it) => it.special || it.type === 'dallah' || keyFor(it) === 'weapon_epic';
 const MAX_PER_KEY = 128;
 
 /**

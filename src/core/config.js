@@ -25,6 +25,7 @@ export const CONFIG = {
     distance: 5.0,
     aimDistance: 2.6,
     dropDistance: 8.5,
+    vehicleDistance: 7.5,
     planeDistance: 34,
     height: 1.75,
     shoulder: 0.95,

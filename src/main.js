@@ -6,6 +6,7 @@ import { InputManager } from './ui/input.js';
 import { TouchControls, isTouchDevice } from './ui/touchControls.js';
 import { setHaptics } from './ui/haptics.js';
 import { Profile, SKINS } from './meta/progression.js';
+import { challengeView, dayIndex } from './meta/challenges.js';
 import { CONFIG } from './core/config.js';
 import { CrashGuard } from './core/crashGuard.js';
 
@@ -75,8 +76,72 @@ function goMenu() {
   setPlaying(false);
   syncLangButtons();
   game.planRoute();
+  game.cinematic = null;
+  game.timeScale = 1;          // the defeat slow-motion ends with the round
+  canvas.classList.remove('desat');
   renderLobby();
   guardInput($('menu'));
+}
+
+// ------------------------------------------------------------------ story
+// Five short panels over live camera shots of the island. Shown once after the
+// splash, and any time from the lobby.
+const STORY_PANELS = 5;
+const story = {
+  i: 0, timer: 0,
+  open() {
+    uiState = 'story';
+    screens.show('story');
+    hud.show(false);
+    const dots = $('story-dots');
+    dots.replaceChildren(...Array.from({ length: STORY_PANELS }, () => document.createElement('i')));
+    this.show(0);
+    guardInput($('story'), 300);
+  },
+  show(i) {
+    this.i = i;
+    this.timer = 0;
+    game.storyShot(i);
+    const txt = $('story-text');
+    txt.classList.remove('in'); void txt.offsetWidth; txt.classList.add('in');
+    txt.textContent = i18n.t(`story${i + 1}`);
+    [...$('story-dots').children].forEach((d, k) => d.classList.toggle('on', k <= i));
+    $('story-next').textContent = i18n.t(i === STORY_PANELS - 1 ? 'play' : 'next');
+  },
+  next() { if (this.i < STORY_PANELS - 1) this.show(this.i + 1); else this.finish(); },
+  finish() {
+    if (uiState !== 'story') return;
+    game.cinematic = null;
+    profile.data.storySeen = true;
+    profile.save();
+    goMenu();
+  },
+  update(dt) {
+    if (uiState !== 'story') return;
+    this.timer += dt;
+    if (this.timer > 7) this.next();
+  },
+};
+$('story-next').addEventListener('click', () => story.next());
+$('story-skip').addEventListener('click', () => story.finish());
+$('btn-story').addEventListener('click', () => story.open());
+
+function celebrate() {
+  const box = $('confetti');
+  const colors = ['#8250ff', '#e8bd47', '#39e0d0', '#ff6ad5', '#ffffff'];
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i < 90; i++) {
+    const d = document.createElement('i');
+    d.style.left = `${Math.random() * 100}%`;
+    d.style.background = colors[i % colors.length];
+    d.style.animationDelay = `${Math.random() * 0.8}s`;
+    d.style.animationDuration = `${2.2 + Math.random() * 1.6}s`;
+    d.style.setProperty('--dx', `${(Math.random() - 0.5) * 160}px`);
+    d.style.setProperty('--rot', `${(Math.random() - 0.5) * 1440}deg`);
+    frag.appendChild(d);
+  }
+  box.replaceChildren(frag);
+  setTimeout(() => box.replaceChildren(), 4600);
 }
 
 // ------------------------------------------------------------------ lobby
@@ -116,7 +181,23 @@ function renderLobby() {
     });
     list.appendChild(b);
   }
+  renderChallenges();
   drawDropMap();
+}
+
+function renderChallenges() {
+  const box = $('challenge-list');
+  const rows = challengeView(profile.data.challenges, dayIndex());
+  box.replaceChildren(...rows.map((c) => {
+    const r = document.createElement('div');
+    r.className = `ch-row${c.done ? ' done' : ''}`;
+    const a = document.createElement('span'); a.textContent = i18n.t(`ch_${c.id}`);
+    const b = document.createElement('b'); b.textContent = c.done ? `✓ +${c.xp} XP` : `${c.progress}/${c.goal} · +${c.xp}`;
+    const bar = document.createElement('div'); bar.className = 'ch-bar';
+    const fill = document.createElement('i'); fill.style.width = `${(c.progress / c.goal) * 100}%`;
+    bar.append(fill); r.append(a, b, bar);
+    return r;
+  }));
 }
 
 // Drop zone: null = auto (a random spot inside the first zone)
@@ -217,6 +298,8 @@ function startMatch() {
   hud.showMansour(false);
   hud.clearFeedback();
   uiState = 'playing';
+  canvas.classList.remove('desat');
+  $('confetti').replaceChildren();
   game.startMatch({ drop: dropPoint, route: game.route });
   coach.start();
   setPlaying(true);
@@ -258,7 +341,7 @@ function renderResults(prefix, sum) {
     d.append(b, sm); return d;
   }));
   const xb = $(`${prefix}-xp`);
-  const rows = res.reward.items.map((i) => [t(i.key), `+${i.xp}`, '']);
+  const rows = res.reward.items.map((i) => [i.challenge ? `${t(i.key)}: ${t(`ch_${i.challenge}`)}` : t(i.key), `+${i.xp}`, i.challenge ? 'challenge' : '']);
   rows.push([t('xpTotal'), `+${res.reward.total} XP`, 'total']);
   xb.replaceChildren(...rows.map(([a, b, cls]) => {
     const r = document.createElement('div'); r.className = `xp-row ${cls}`;
@@ -285,8 +368,15 @@ function renderResults(prefix, sum) {
   if (prefix === 'lose') $('lose-by').textContent = `${t('eliminatedBy')}: ${sum.killer}`;
 }
 
+game.events.on('player:landed', ({ location }) => {
+  const poi = game.map.pois.find((p) => p.id === location);
+  const name = poi ? (lang() === 'ar' ? poi.nameAr : poi.nameEn) : i18n.t('landed');
+  hud.titleCard(`${i18n.t('roundNo')} ${profile.data.matches + 1}`, name);
+});
+
 game.events.on('match:win', (sum) => {
   coach.stop();
+  celebrate();
   renderResults('win', sum);
   // let the victory animation play for a beat before the screen lands
   setTimeout(() => {
@@ -296,10 +386,11 @@ game.events.on('match:win', (sum) => {
     guardInput($('victory'), 500);
     setPlaying(false);
     document.exitPointerLock?.();
-  }, 1400);
+  }, 3200);   // the orbit camera and confetti get their moment first
 });
 game.events.on('match:lose', (sum) => {
   coach.stop();
+  canvas.classList.add('desat');
   renderResults('lose', sum);
   setTimeout(() => {
     if (game.state !== MatchState.LOST) return;
@@ -314,7 +405,11 @@ game.events.on('match:lose', (sum) => {
 // ------------------------------------------------------------------ buttons
 // 'click' (not 'pointerdown'): dismissing on pointerdown lets the follow-up
 // click fall through onto whichever menu button is now under the finger.
-$('splash').addEventListener('click', () => { audio.unlock(); goMenu(); });
+// First launch tells the story; webdriver (the smoke test) goes straight to the lobby.
+$('splash').addEventListener('click', () => {
+  audio.unlock();
+  if (!profile.data.storySeen && !navigator.webdriver) story.open(); else goMenu();
+});
 $('btn-play').addEventListener('click', startMatch);
 $('btn-settings').addEventListener('click', goSettings);
 $('btn-settings-back').addEventListener('click', () => (uiState === 'paused' ? screens.show('pause') : goMenu()));
@@ -458,8 +553,9 @@ function frame(now) {
   // One bad frame must not end the session: record it and keep running.
   try {
     const cmd = input.consume();
-    game.update(dt, cmd);
+    game.update(dt * game.timeScale, cmd);
     coach.update(dt);
+    story.update(dt);
     input.lookScale = game.lookScale();
     if (uiState === 'playing') game.adaptResolution(fps || 60, dt);
     if (uiState === 'playing' || uiState === 'won' || uiState === 'lost') hud.update(game);

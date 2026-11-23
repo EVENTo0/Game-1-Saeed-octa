@@ -1,3 +1,5 @@
+import { applyMatch, dayIndex } from './challenges.js';
+
 /**
  * Player progression: XP per match, levels and cosmetic unlocks. Pure and
  * storage-agnostic so it is unit tested without a browser. Rewards are tied to
@@ -61,7 +63,10 @@ export function skinsUnlockedAt(level) {
   return SKINS.filter((k) => k.level <= level).map((k) => k.id);
 }
 
-const DEFAULT_PROFILE = { xp: 0, skin: 'classic', matches: 0, wins: 0, kills: 0, bestPlacement: 0, tutorialDone: false };
+const DEFAULT_PROFILE = {
+  xp: 0, skin: 'classic', matches: 0, wins: 0, kills: 0, bestPlacement: 0, tutorialDone: false,
+  storySeen: false, challenges: null,
+};
 
 /**
  * Persistent profile. `storage` is anything with getItem/setItem (localStorage
@@ -92,9 +97,15 @@ export class Profile {
     return true;
   }
   /** Apply a finished match. Returns everything the results screen needs. */
-  recordMatch(stats) {
+  recordMatch(stats, day = dayIndex()) {
     const before = levelFromXp(this.data.xp);
     const reward = xpForMatch(stats);
+    const ch = applyMatch(this.data.challenges, stats, day);
+    this.data.challenges = ch.state;
+    for (const c of ch.completed) {
+      reward.items.push({ key: 'xpChallenge', xp: c.xp, challenge: c.id });
+      reward.total += c.xp;
+    }
     this.data.xp += reward.total;
     this.data.matches += 1;
     this.data.kills += stats.kills;
@@ -105,7 +116,7 @@ export class Profile {
     const after = levelFromXp(this.data.xp);
     const newSkins = SKINS.filter((k) => k.level > before.level && k.level <= after.level);
     this.save();
-    return { reward, before, after, leveledUp: after.level > before.level, newSkins };
+    return { reward, before, after, leveledUp: after.level > before.level, newSkins, challenges: ch.completed };
   }
   completeTutorial() { this.data.tutorialDone = true; this.save(); }
   save() {

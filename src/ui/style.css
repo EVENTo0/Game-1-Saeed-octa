@@ -122,6 +122,18 @@ h2{font-size:clamp(20px,5vw,30px);color:var(--gold-soft)}
 #zone-chip.warn .chip-label{color:#ffc2cd}
 #minimap{border-radius:50%;border:1px solid rgba(122,92,255,.35);background:rgba(10,7,19,.6);
   width:112px;height:112px}
+/* compass bar and status chips, centred under it */
+.hud-center-top{position:absolute;top:calc(var(--hud-pad) - 4px);left:50%;transform:translateX(-50%);
+  display:flex;flex-direction:column;align-items:center;gap:6px;pointer-events:none}
+#compass{width:min(44vw,440px);height:30px;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 14%,#000 86%,transparent);
+          mask-image:linear-gradient(90deg,transparent,#000 14%,#000 86%,transparent)}
+.chip-row{display:flex;gap:6px}
+.chip-row .hud-chip{padding:4px 10px;font-size:12px}
+#kills-chip .chip-value{color:#fff}
+#weapon-slot2{margin-top:6px;padding:4px 10px;border-radius:10px;font-size:11px;color:var(--muted);
+  background:rgba(16,11,30,.6);border:1px solid rgba(255,255,255,.08)}
+#weapon-panel{border-inline-start-width:4px !important}
 
 .hud-bottom-left{position:absolute;bottom:calc(var(--hud-pad) + 4px);left:var(--side-pad);
   display:flex;align-items:flex-end;gap:10px}
@@ -183,7 +195,7 @@ h2{font-size:clamp(20px,5vw,30px);color:var(--gold-soft)}
 #damage-vignette.hit{opacity:1;transition:opacity .04s}
 
 #mansour-bubble{
-  position:absolute;top:calc(var(--hud-pad) + 62px);left:50%;transform:translateX(-50%);
+  position:absolute;top:calc(var(--hud-pad) + 92px);left:50%;transform:translateX(-50%);
   max-width:min(420px,84vw);padding:12px 18px;border-radius:16px;
   background:var(--panel);border:1px solid var(--gold);text-align:center
 }
@@ -321,7 +333,7 @@ h2{font-size:clamp(20px,5vw,30px);color:var(--gold-soft)}
 .drop-note{margin:0;font-size:11px;color:var(--muted);text-align:center}
 
 /* ---- skydive ---- */
-#drop-chip{position:absolute;top:calc(var(--hud-pad) + 50px);left:50%;transform:translateX(-50%);
+#drop-chip{position:absolute;top:calc(var(--hud-pad) + 74px);left:50%;transform:translateX(-50%);
   border-color:var(--gold)}
 #coach-hint{position:absolute;bottom:calc(var(--hud-pad) + 6px);left:50%;transform:translateX(-50%);
   max-width:min(420px,32vw);padding:9px 16px;border-radius:12px;text-align:center;font-size:14px;
@@ -454,3 +466,68 @@ h2{font-size:clamp(20px,5vw,30px);color:var(--gold-soft)}
 .safe-note{margin:0;padding:6px 10px;border-radius:10px;font-size:11px;line-height:1.4;
   background:rgba(212,167,44,.14);border:1px solid rgba(212,167,44,.5);color:var(--gold-soft)}
 .diag{margin:0;font-size:10px;color:var(--muted);direction:ltr;text-align:start;overflow-wrap:anywhere;width:100%}
+
+/* ---- v3: story, title card, confetti, defeat grade ---- */
+.story{z-index:45;display:flex;align-items:flex-end;justify-content:center;
+  padding:0 var(--side-pad) calc(var(--hud-pad) + 6px);
+  background:linear-gradient(180deg,rgba(10,7,19,.55),rgba(10,7,19,0) 22%,rgba(10,7,19,0) 50%,rgba(10,7,19,.85))}
+.story-card{width:min(720px,92vw);display:flex;flex-direction:column;gap:10px;align-items:flex-start}
+.story-text{margin:0;font-size:clamp(16px,2.6vw,22px);line-height:1.7;color:#fff;
+  text-shadow:0 2px 12px rgba(0,0,0,.8);min-height:3.4em}
+.story-text.in{animation:storyIn .6s ease-out}
+@keyframes storyIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.story-dots{display:flex;gap:6px}
+.story-dots i{width:22px;height:4px;border-radius:2px;background:rgba(255,255,255,.3)}
+.story-dots i.on{background:var(--gold)}
+.story-next{width:auto;min-height:44px;padding:8px 28px}
+.story-skip{position:absolute;top:calc(var(--hud-pad) + 4px);inset-inline-end:var(--side-pad);min-height:38px;padding:6px 16px;
+  border-radius:12px;background:var(--panel);border:1px solid rgba(255,255,255,.2);color:var(--text);font-family:inherit;cursor:pointer}
+.lobby-row #btn-story{flex:0 0 auto;padding:8px 14px}
+#title-card{position:absolute;top:40%;left:50%;transform:translateX(-50%);text-align:center;pointer-events:none;
+  display:flex;flex-direction:column;gap:2px}
+#title-card.show{animation:tcard 3.2s ease-out forwards}
+#title-card small{font-size:12px;letter-spacing:.3em;color:var(--gold-soft);text-shadow:0 1px 6px #000}
+#title-card b{font-size:clamp(28px,6vw,46px);font-weight:900;color:#fff;text-shadow:0 3px 18px rgba(0,0,0,.75)}
+@keyframes tcard{0%{opacity:0;letter-spacing:.3em}15%{opacity:1;letter-spacing:.02em}80%{opacity:1}100%{opacity:0}}
+#confetti{position:fixed;inset:0;pointer-events:none;z-index:41;overflow:hidden}
+#confetti i{position:absolute;top:-12px;width:8px;height:14px;border-radius:2px;animation:fall linear forwards}
+@keyframes fall{to{transform:translate3d(var(--dx),110vh,0) rotate(var(--rot))}}
+canvas#game-canvas.desat{filter:grayscale(.75) contrast(1.05) brightness(.85);transition:filter .8s}
+
+/* =====================================================================
+   v3 — grenades, vehicles, side quest, daily challenges
+   ===================================================================== */
+/* the frag sits just left of the cluster's bottom row, out of the flex flow,
+   so the fire button keeps its place under the right thumb */
+.btn-cluster{overflow:visible}
+.btn-cluster .grenade-btn{position:absolute;bottom:84px;right:calc(100% + 12px)}
+@media (max-height:460px){ .btn-cluster .grenade-btn{bottom:74px} }
+.grenade-btn .ico{color:#b9d66a}
+.hud-btn.empty{opacity:.38}
+#hud.driving .btn-cluster [data-action="fire"],#hud.driving .btn-cluster [data-action="aim"],
+#hud.driving .btn-cluster [data-action="reload"],#hud.driving .btn-cluster [data-action="crouch"],
+#hud.driving .btn-cluster [data-action="jump"],#hud.driving .btn-cluster [data-action="swap"]{opacity:.25;pointer-events:none}
+#quest-chip{position:absolute;top:calc(var(--hud-pad) + 92px);left:50%;transform:translateX(-50%);
+  display:flex;align-items:center;gap:8px;border-color:rgba(255,159,67,.65)}
+#quest-chip .q-ico{font-size:15px}
+#quest-chip .chip-value{color:#ffb86b}
+#speedo{position:absolute;top:calc(var(--hud-pad) + 96px);right:var(--side-pad);pointer-events:none;
+  min-width:96px;padding:6px 12px;border-radius:14px;background:rgba(14,10,28,.72);border:1px solid rgba(232,189,71,.5);
+  display:flex;flex-direction:column;align-items:center;line-height:1}
+#speedo b{font-size:28px;font-weight:900;color:#fff;font-variant-numeric:tabular-nums}
+#speedo small{font-size:10px;letter-spacing:.2em;color:var(--gold-soft);margin-top:2px}
+.speedo-hp{width:100%;height:4px;border-radius:2px;background:rgba(255,255,255,.15);margin-top:6px;overflow:hidden}
+.speedo-hp i{display:block;height:100%;background:linear-gradient(90deg,#ff6b6b,#ffd166,#3fd68a)}
+@media (max-height:460px){ #quest-chip{top:calc(var(--hud-pad) + 74px)} #speedo{top:calc(var(--hud-pad) + 78px)} }
+
+.challenges{width:100%;display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:12px;
+  background:rgba(14,10,28,.55);border:1px solid rgba(232,189,71,.28)}
+.challenges h4{margin:0;font-size:12px;letter-spacing:.12em;color:var(--gold-soft);font-weight:800}
+.ch-row{display:grid;grid-template-columns:1fr auto;gap:2px 8px;font-size:12px;align-items:center}
+.ch-row span{color:var(--text)}
+.ch-row b{font-size:11px;color:var(--gold-soft);font-variant-numeric:tabular-nums}
+.ch-row .ch-bar{grid-column:1 / -1;height:4px;border-radius:2px;background:rgba(255,255,255,.12);overflow:hidden}
+.ch-row .ch-bar i{display:block;height:100%;background:var(--gold)}
+.ch-row.done span{color:var(--ok);text-decoration:line-through;text-decoration-color:rgba(63,214,138,.5)}
+.ch-row.done .ch-bar i{background:var(--ok)}
+#hud.driving #coach-hint{display:none}

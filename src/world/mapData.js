@@ -353,6 +353,29 @@ export function buildMap() {
     loot({ x, z, kind: i % 3 === 0 ? 'medkit' : 'ammo' });
   }
 
+  // frag grenades: every third ammo crate becomes a grenade (no rng, so the
+  // rest of the layout is untouched)
+  let ammoN = 0;
+  for (const sp of lootSpots) if (sp.kind === 'ammo' && ammoN++ % 3 === 1) sp.kind = 'grenade';
+
+  // dune buggies parked beside the roads, nose along the road
+  const vehicles = [];
+  for (const [a, b] of [['town', 'village'], ['souq', 'hills'], ['port', 'wadi'], ['fort', 'base'], ['farm', 'ruins'], ['radio', 'port']]) {
+    const A = at[a], B = at[b];
+    const dx = B.x - A.x, dz = B.z - A.z, L = Math.hypot(dx, dz);
+    const ux = dx / L, uz = dz / L;
+    for (const side of [1, -1, 2, -2]) {
+      const t = A.r + 10;                                     // just outside the location
+      const x = A.x + ux * t - uz * 5 * side, z = A.z + uz * t + ux * 5 * side;
+      const clear = !colliders.some((c) => c.tag !== 'bounds' && c.top > 0.5
+        && Math.abs(x - c.x) < c.hw + 2.4 && Math.abs(z - c.z) < c.hd + 2.4);
+      if (clear && Math.abs(x) < MAP_HALF - 10 && Math.abs(z) < MAP_HALF - 10 && x < 222) {
+        vehicles.push({ x, z, yaw: Math.atan2(-ux, -uz) });
+        break;
+      }
+    }
+  }
+
   // ---------- world boundary walls ----------
   const S = MAP_HALF;
   colliders.push(box(0, -S, S * 2, 2, 12, 'bounds'));
@@ -377,6 +400,7 @@ export function buildMap() {
     bots: defaults.map((i, k) => ({ ...botCandidates[i], name: botNames[k] })),
     botCandidates,
     botNames,
+    vehicles,
   };
 
   return { colliders, buildings, props, lootSpots, bushes, pois, spawns, oasis, half: MAP_HALF, center: { x: 0, z: 0 } };

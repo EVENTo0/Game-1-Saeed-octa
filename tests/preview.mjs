@@ -72,7 +72,22 @@ async function main() {
   check('boots without page errors', errors.length === 0, errors[0] ?? '');
 
   await page.locator('#splash').tap(); await sleep(1200);
-  await shot('الردهة', 'Lobby: Saeed on a turntable, level and XP, outfits, drop-zone map, version tag');
+  await shot('الردهة', 'Lobby: Saeed on a turntable, level and XP, daily challenges, outfits, drop-zone map');
+  check('lobby shows three daily challenges', await ev(() => document.querySelectorAll('#challenge-list .ch-row').length) === 3);
+
+  // ---- v3: the story, five panels over live camera shots ----
+  await page.locator('#btn-story').tap(); await sleep(1600);
+  await shot('القصة ١', 'Story 1/5: Oasis Village, Saeed and OCTA at Uncle Mansour\'s coffee house');
+  await page.locator('#story-next').tap(); await sleep(1600);
+  await shot('القصة ٢', 'Story 2/5: the Saeed Royale is announced — aerial shot of the island');
+  await page.locator('#story-next').tap(); await sleep(1600);
+  await shot('القصة ٣', 'Story 3/5: nine rivals, twelve locations — Old Town');
+  await page.locator('#story-next').tap(); await sleep(1600);
+  await shot('القصة ٤', 'Story 4/5: Uncle Mansour — "where is the coffee?"');
+  await page.locator('#story-next').tap(); await sleep(1600);
+  await shot('القصة ٥', 'Story 5/5: Saeed decides');
+  check('story plays five panels', await ev(() => document.getElementById('story-text').textContent.length > 10));
+  await page.locator('#story-skip').tap(); await sleep(900);
   check('lobby lists four outfits', await ev(() => document.querySelectorAll('#skin-list .skin').length) === 4);
   await page.locator('#lang-en').tap(); await sleep(500);
   await shot('Lobby — English', 'Language toggle flips the whole lobby to LTR');
@@ -105,7 +120,7 @@ async function main() {
   await sleep(700);
   const face = await ev(() => { const g = globalThis.SAEED.game; return Math.abs(Math.cos(g.playerView.root.rotation.y - g.player.yaw) + 1); });
   check('character faces away from camera', face < 1e-3);
-  await shot('الهبوط', 'Touchdown: "safe landing" toast, Saeed seen from behind, OCTA at the shoulder');
+  await shot('الهبوط', 'Touchdown: round title card with the location name, OCTA at the shoulder, coffee quest objective');
 
   // ---- look around (touch drag, right side) ----
   const lx = vp.w * 0.56, ly = vp.h * 0.3;            // open screen, clear of the buttons
@@ -233,6 +248,72 @@ async function main() {
   await sleep(1100);
   await shot('عم منصور', 'Uncle Mansour — "وين القهوة؟"');
 
+  // ---- v3: grenades ----
+  await ev(async () => {
+    const S = globalThis.SAEED, g = S.game, p = g.player;
+    let spot = null;
+    for (let i = 0; i < 20000 && !spot; i++) {
+      const x = (Math.random() * 2 - 1) * 200, z = (Math.random() * 2 - 1) * 200;
+      if (!g.colliders.some((c) => c.tag !== 'bounds' && Math.abs(x - c.x) < c.hw + 30 && Math.abs(z - c.z) < c.hd + 30)) spot = { x, z };
+    }
+    p.pos.x = spot.x; p.pos.z = spot.z; p.pos.y = 0; p.yaw = 0.3; p.pitch = 0.05; p.health.value = 100;
+    p.inventory.grenades = 3;
+    S.input.state.grenade = true;
+  });
+  await sleep(900);
+  await shot('القنبلة: التصويب', 'Hold the frag button: the throw arc and the blast ring preview where it lands');
+  const nadeLand = await ev(() => {
+    const g = globalThis.SAEED.game;
+    const b = g.bots.find((x) => x.alive);
+    b.pos.x = g.arcRing.position.x + 1; b.pos.z = g.arcRing.position.z; b.health.value = 50;
+    globalThis.SAEED.input.state.grenade = false;
+    return b.id;
+  });
+  await page.waitForFunction(() => globalThis.SAEED.game.grenades.length === 0, null, { timeout: 30000 }).catch(() => {});
+  await sleep(150);
+  await shot('القنبلة: الانفجار', 'Release to throw: it bounces, the fuse runs out, fireball and smoke');
+  check('a frag eliminates the rival it lands beside', await ev((id) => !globalThis.SAEED.game.bots.find((b) => b.id === id).alive, nadeLand));
+
+  // ---- v3: dune buggy ----
+  await ev(async () => {
+    const S = globalThis.SAEED, g = S.game, p = g.player;
+    const b = g.buggies[0]; const e = b.exitPoint();
+    p.pos.x = e.x; p.pos.z = e.z; p.pos.y = 0; p.health.value = 100;
+    p.yaw = b.yaw + 0.6;
+  });
+  await sleep(800);
+  await shot('البقّي', 'A dune buggy parked by the road: "Drive buggy" prompt');
+  await ev(() => { globalThis.SAEED.input.state.interact = true; });
+  await sleep(400);
+  await ev(() => { const S = globalThis.SAEED; S.input.keyboard.z = 1; S.input.syncMove(); });
+  await page.waitForFunction(() => globalThis.SAEED.game.player.vehicle?.distance > 25, null, { timeout: 30000 }).catch(() => {});
+  await shot('القيادة', 'Driving: chase camera, speedometer with buggy health, weapons stand down');
+  check('the buggy drives', await ev(() => (globalThis.SAEED.game.player.vehicle?.distance ?? 0) > 20));
+  await ev(() => { const S = globalThis.SAEED; S.input.keyboard.z = 0; S.input.syncMove(); });
+  await sleep(1500);
+  await ev(() => { globalThis.SAEED.input.state.interact = true; });
+  await sleep(400);
+
+  // ---- v3: Uncle Mansour's coffee ----
+  await ev(() => {
+    const g = globalThis.SAEED.game, p = g.player, it = g.quest.item;
+    p.pos.x = it.x + 1.6; p.pos.z = it.z + 1.6; p.pos.y = it.ground ?? 0;
+    p.yaw = Math.atan2(-(it.x - p.pos.x), -(it.z - p.pos.z)); p.pitch = -0.2;
+  });
+  await sleep(900);
+  await shot('دلّة القهوة', 'Side quest: Mansour\'s dallah glowing gold somewhere new each match');
+  await ev(() => { globalThis.SAEED.input.state.interact = true; });
+  await sleep(1200);
+  await shot('أوصل القهوة', 'Picked up: the objective and the compass now point to Uncle Mansour');
+  await ev(() => {
+    const g = globalThis.SAEED.game, p = g.player, m = g.map.spawns.npcMansour;
+    p.pos.x = m.x + 2.5; p.pos.z = m.z + 2.5; p.pos.y = 0;
+    p.yaw = Math.atan2(-(m.x - p.pos.x), -(m.z - p.pos.z)); p.pitch = -0.05;
+  });
+  await sleep(1000);
+  await shot('شكراً يا سعيد', 'Delivered: Mansour thanks Saeed — full armour, health, two frags and a med kit');
+  check('the coffee quest completes', await ev(() => globalThis.SAEED.game.quest.state === 'done'));
+
   // ---- v2.2: scope, hiding, the new locations ----
   await ev(() => {
     const g = globalThis.SAEED.game; const p = g.map.pois.find((x) => x.id === 'hills');
@@ -279,8 +360,11 @@ async function main() {
     const g = globalThis.SAEED.game; g.player.health.value = 100;
     g.bots.filter((b) => b.alive).forEach((b) => g._damageBot(b, 999));
   });
-  await sleep(3200);
-  await shot('النصر والنتائج', 'Victory results: placement, stats, itemised XP, level bar, unlocks');
+  await sleep(1100);
+  await shot('لحظة النصر', 'Victory: slow orbit round Saeed and OCTA, confetti in EVENTO colours');
+  await page.waitForSelector('#victory:not(.hidden)', { timeout: 20000 }).catch(() => {});
+  await sleep(700);
+  await shot('النصر والنتائج', 'Victory results: placement, stats, itemised XP with daily challenges, level bar');
   check('victory screen shows', await page.isVisible('#victory'));
   check('a win awards XP', await ev(() => globalThis.SAEED.profile.data.xp) > 0);
 
@@ -294,7 +378,7 @@ async function main() {
     g.killer = b; g.player.takeDamage(999);
   });
   await sleep(500);
-  await shot('لقطة الإسقاط', 'Kill-cam: the camera turns to face whoever eliminated Saeed');
+  await shot('لقطة الإسقاط', 'Kill-cam in slow motion, colour drained: the camera turns to face whoever eliminated Saeed');
   await page.waitForSelector('#defeat:not(.hidden)', { timeout: 20000 }).catch(() => {});
   await sleep(600);
   await shot('نتائج الخسارة', 'Defeat results: placement, who eliminated Saeed, XP still earned');

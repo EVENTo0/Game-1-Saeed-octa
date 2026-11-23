@@ -10,7 +10,7 @@ export function createInputState() {
     moveX: 0, moveZ: 0,
     lookDX: 0, lookDY: 0,
     run: false, aim: false, crouch: false, fire: false,
-    jump: false, reload: false, interact: false, swap: false, use: false, weapon: 0,
+    jump: false, reload: false, interact: false, swap: false, use: false, weapon: 0, grenade: false,
   };
 }
 
@@ -40,7 +40,7 @@ export class InputManager {
       lookDX: s.lookDX, lookDY: s.lookDY,
       run: s.run, aim: s.aim, crouch: s.crouch, fire: s.fire,
       jump: s.jump, reload: s.reload, interact: s.interact, swap: s.swap,
-      use: s.use, weapon: s.weapon,
+      use: s.use, weapon: s.weapon, grenade: s.grenade,
     };
     s.lookDX = 0; s.lookDY = 0;
     s.jump = false; s.reload = false; s.interact = false; s.swap = false;
@@ -77,6 +77,7 @@ export class InputManager {
         case 'Digit1': s.weapon = 1; break;
         case 'Digit2': s.weapon = 2; break;
         case 'KeyC': s.crouch = !s.crouch; break;
+        case 'KeyG': s.grenade = true; break;
         case 'ShiftLeft': case 'ShiftRight': s.run = true; break;
         default: break;
       }
@@ -85,9 +86,10 @@ export class InputManager {
     const up = (e) => {
       keys.delete(e.code);
       if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') this.state.run = false;
+      if (e.code === 'KeyG') this.state.grenade = false;
       applyAxes();
     };
-    const blur = () => { keys.clear(); this.state.run = false; applyAxes(); };
+    const blur = () => { keys.clear(); this.state.run = false; this.state.grenade = false; applyAxes(); };
     target.addEventListener('keydown', down);
     target.addEventListener('keyup', up);
     target.addEventListener('blur', blur);

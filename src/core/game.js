@@ -5,6 +5,7 @@ import { makeRng, damp, clamp } from './mathx.js';
 import { buildMap } from '../world/mapData.js';
 import { buildWorld, buildZoneVisual } from '../world/worldView.js';
 import { createSky } from '../world/sky.js';
+import { buildScenery } from '../world/scenery.js';
 import { LootView } from '../world/lootView.js';
 import { Player } from '../player/player.js';
 import { Bot } from '../ai/bot.js';
@@ -25,7 +26,10 @@ import { LootManager, makeLootItem } from '../loot/loot.js';
 import { Airdrop } from '../loot/airdrop.js';
 import { planRoute, routePoint, closestT, overMap } from '../world/flight.js';
 import { buildPlane } from '../world/planeView.js';
-import { segmentBlocked } from '../world/collision.js';
+import { segmentBlocked, resolveXZ } from '../world/collision.js';
+import { Grenade, GRENADE, throwVelocity, blastDamage, predictArc } from '../combat/grenade.js';
+import { Buggy, BUGGY } from '../vehicles/buggy.js';
+import { buildBuggy, buildGrenadeMesh } from '../vehicles/buggyView.js';
 
 /** Highest solid surface under a point that loot can rest on (not roofs or walls). */
 function lootGround(x, z, colliders) {
@@ -47,7 +51,8 @@ const QUALITY = {
 };
 
 /** Sun direction, shared by the light and the sky shader so they agree. */
-const SUN_DIR = { x: 0.45, y: 0.62, z: 0.30 };
+// Late-afternoon sun: lower and warmer, so buildings throw long readable shadows.
+const SUN_DIR = { x: 0.52, y: 0.46, z: 0.34 };
 
 export class Game {
   constructor(canvas, { audio, hud, i18n, quality = 'med', mobile = false } = {}) {
@@ -91,6 +96,8 @@ export class Game {
     this.skin = null;
     this.route = null;
     this.planeT = 0;
+    this.cinematic = null;      // { pos, look } for story shots
+    this.timeScale = 1;         // slow motion on defeat
     this.dropTarget = null;
     this.pixelRatioMax = this._pixelCap(quality);
     this.pixelRatio = this.pixelRatioMax;
@@ -98,7 +105,10 @@ export class Game {
   }
 
   static freshStats() {
-    return { shots: 0, hits: 0, damage: 0, kills: 0, placement: 0, time: 0, won: false, killer: null };
+    return {
+      shots: 0, hits: 0, damage: 0, kills: 0, placement: 0, time: 0, won: false, killer: null,
+      coffee: false, grenadeKills: 0, driven: 0, airdrops: 0,
+    };
   }
 
   // ---------------------------------------------------------------- renderer
@@ -174,7 +184,7 @@ export class Game {
     // ---- direct sun ----
     // Still only two light sources; the rest of the ambient comes from the
     // environment map, which is both cheaper and far more convincing.
-    this.sun = new THREE.DirectionalLight(0xfff4e0, 3.1);
+    this.sun = new THREE.DirectionalLight(0xffe6c2, 3.2);
     this.sun.position.set(SUN_DIR.x * 100, SUN_DIR.y * 100, SUN_DIR.z * 100);
     this.sun.castShadow = q.shadows;
     this.sun.shadow.mapSize.set(q.shadowMap, q.shadowMap);
@@ -189,6 +199,8 @@ export class Game {
 
     this.world = buildWorld(this.map, { quality: this.quality });
     this.scene.add(this.world.group);
+    this.scenery = buildScenery(this.map, { quality: this.quality, horizon: this.sky.horizonColor() });
+    this.scene.add(this.scenery.group);
 
     this.zoneVisual = buildZoneVisual();
     this.scene.add(this.zoneVisual.group);
@@ -246,6 +258,27 @@ export class Game {
     this.scene.add(this.mansour.root);
 
     this.botViews = [];
+
+    // ---- dune buggies ----
+    this.buggies = (this.map.spawns.vehicles ?? []).map((v) => new Buggy(v.x, v.z, v.yaw));
+    this.buggyViews = this.buggies.map(() => { const v = buildBuggy(); this.scene.add(v.root); return v; });
+
+    // ---- grenades: flying meshes (pooled) and the aiming arc ----
+    this.grenades = [];
+    this.grenadeViews = Array.from({ length: 6 }, () => {
+      const g = buildGrenadeMesh(); g.root.visible = false; this.scene.add(g.root); return g;
+    });
+    // the throw arc as a row of glowing beads: a 1 px line vanishes on a phone
+    this.arcDots = new THREE.InstancedMesh(new THREE.SphereGeometry(0.07, 6, 4),
+      new THREE.MeshBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.95, depthTest: false }), 28);
+    this.arcDots.frustumCulled = false;
+    this.arcDots.renderOrder = 10;
+    this.arcDots.visible = false;
+    this.arcLine = this.arcDots;            // tests and HUD read arcLine.visible
+    this.arcRing = new THREE.Mesh(new THREE.RingGeometry(GRENADE.radius * 0.92, GRENADE.radius, 40).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: 0xff7a4a, transparent: true, opacity: 0.45, depthWrite: false, side: THREE.DoubleSide }));
+    this.arcRing.visible = false;
+    this.scene.add(this.arcDots, this.arcRing);
   }
 
   // ---------------------------------------------------------------- match
@@ -262,6 +295,9 @@ export class Game {
    */
   startMatch(opts = {}) {
     this.matchTime = 0;
+    this.cinematic = null;
+    this.timeScale = 1;
+    this._orbit = undefined;
     this.player.reset();
     this.player.pos.x = this.map.spawns.player.x;
     this.player.pos.z = this.map.spawns.player.z;
@@ -291,6 +327,7 @@ export class Game {
     this._landedAt = opts.ground ? 0 : Infinity;
     this.stats = Game.freshStats();
     this.killer = null;
+    this._deathCause = null;
     this._lastKillAt = -99;
     this._streak = 0;
     this.playerAnim = new ProceduralAnimator(this.playerView.rig);
@@ -303,6 +340,13 @@ export class Game {
     this.lootView.sync(this.loot.items);
     this._zoneWarned = -1;
     this.nearbyLoot = null;
+    this.nearbyBuggy = null;
+    this.player.vehicle = null;
+    this.buggies.forEach((b) => b.reset());
+    this.grenades.length = 0;
+    this._aimingGrenade = false;
+    this._warnedGrenades = new WeakSet();
+    this._placeDallah();
 
     // Start with a sidearm-grade rifle so the first 10 seconds are playable
     this.player.inventory.addWeapon('OCTA_AR');
@@ -333,7 +377,11 @@ export class Game {
       b.pos.x = c.x; b.pos.z = c.z; b.pos.y = 0;
       b.target = { x: c.x, z: c.z };
     });
-    this.bots.forEach((b) => { b.visibleToPlayer = false; });
+    this.bots.forEach((b) => {
+      b.visibleToPlayer = false;
+      b.grenades = this.rng() < 0.6 ? 1 : 0;     // some rivals carry a frag
+      b.grenadeCd = 8;
+    });
     this.botViews.forEach(({ view }) => { view.root.visible = true; });
 
     this.state = MatchState.PLAYING;
@@ -342,6 +390,222 @@ export class Game {
 
   _groundLoot(items) {
     for (const it of items) { it.ground = lootGround(it.x, it.z, this.colliders); it.y = it.ground; }
+  }
+
+  /**
+   * Uncle Mansour's side quest: his dallah (coffee pot) is somewhere on the
+   * island. Bring it back to him for a reward. A different location each match.
+   */
+  _placeDallah() {
+    const pois = (this.map.pois ?? []).filter((p) => p.id !== 'village');
+    const poi = pois[Math.floor(this.rng() * pois.length)];
+    this.quest = { state: 'find', poi: poi?.id ?? null, item: null };
+    if (!poi) return;
+    let spot = null;
+    for (let i = 0; i < 30 && !spot; i++) {
+      const a = this.rng() * Math.PI * 2, d = this.rng() * poi.r * 0.6;
+      const x = poi.x + Math.cos(a) * d, z = poi.z + Math.sin(a) * d;
+      const blocked = this.colliders.some((c) => ['wall', 'container', 'prop', 'cover', 'ruin', 'landmark', 'tower'].includes(c.tag)
+        && Math.abs(x - c.x) < c.hw + 0.6 && Math.abs(z - c.z) < c.hd + 0.6 && c.bottom < 1);
+      if (!blocked) spot = { x, z };
+    }
+    spot ??= { x: poi.x, z: poi.z };
+    const item = makeLootItem({ kind: 'dallah', x: spot.x, z: spot.z });
+    this._groundLoot([item]);
+    this.loot.items.push(item);
+    this.quest.item = item;
+  }
+
+  /** Where the quest points now: the dallah, then Mansour. Null when done. */
+  questTarget() {
+    const q = this.quest;
+    if (!q || q.state === 'done') return null;
+    if (q.state === 'find') return q.item && !q.item.taken ? { x: q.item.x, z: q.item.z, kind: 'dallah' } : null;
+    const m = this.map.spawns.npcMansour;
+    return { x: m.x, z: m.z, kind: 'mansour' };
+  }
+
+  _deliverCoffee() {
+    const inv = this.player.inventory;
+    this.quest.state = 'done';
+    this.stats.coffee = true;
+    inv.armor = CONFIG.armor.max;
+    inv.addGrenade(2);
+    inv.addMedkit();
+    this.player.health.heal(this.player.health.max);
+    this.hud.banner(this.i18n.t('coffeeDone'), this.i18n.t('coffeeReward'));
+    this.hud.mansourLine?.(this.i18n.t('mansourThanks'));
+    this.audio.victory();
+    this.octaMood = 3;
+    this.events.emit('quest:done');
+  }
+
+  // ---------------------------------------------------------------- grenades
+  _grenadeOrigin() {
+    const p = this.player;
+    const r = { x: Math.cos(p.yaw), z: -Math.sin(p.yaw) };
+    return { x: p.pos.x + r.x * 0.35, y: p.pos.y + p.height * 0.92, z: p.pos.z + r.z * 0.35 };
+  }
+  _grenadeVelocity() {
+    const p = this.player;
+    const aim = p.aimDir();
+    // a little extra loft: the camera looks over the shoulder, slightly down
+    const pitch = Math.min(1.2, p.pitch + 0.18);
+    const cp = Math.cos(pitch);
+    return throwVelocity({ x: aim.x / Math.max(1e-3, Math.cos(p.pitch)) * cp, y: Math.sin(pitch), z: aim.z / Math.max(1e-3, Math.cos(p.pitch)) * cp }, p.vel);
+  }
+  _updateGrenadeAim() {
+    const pts = predictArc(this._grenadeOrigin(), this._grenadeVelocity(), this.colliders);
+    const dots = this.arcDots, m = this._arcM ??= new THREE.Matrix4();
+    const N = dots.count;
+    for (let i = 0; i < N; i++) {
+      const q = pts[Math.min(pts.length - 1, Math.round((i / (N - 1)) * (pts.length - 1) * 0.85))];
+      const sc = 1.3 + (i / N) * 2.4;                    // grow along the arc so far beads still read
+      m.makeScale(sc, sc, sc).setPosition(q.x, q.y, q.z);
+      dots.setMatrixAt(i, m);
+    }
+    dots.instanceMatrix.needsUpdate = true;
+    dots.visible = true;
+    const end = pts[pts.length - 1];
+    this.arcRing.position.set(end.x, Math.max(0.05, end.y - GRENADE.size + 0.05), end.z);
+    this.arcRing.visible = true;
+  }
+  _throwGrenade() {
+    if (!this.player.inventory.useGrenade()) return;
+    this.grenades.push(new Grenade(this._grenadeOrigin(), this._grenadeVelocity(), 'player'));
+    this.playerAnim.play(AnimState.RELOAD, 0.35);
+    this.audio.throwGrenade?.();
+    haptics.hitDealt();
+  }
+  /** A rival lobs its frag at where it last saw Saeed. */
+  _botThrow(bot, target) {
+    const T = 1.5;
+    const from = { x: bot.pos.x, y: bot.pos.y + 1.6, z: bot.pos.z };
+    const tx = target.x + (this.rng() - 0.5) * 4, tz = target.z + (this.rng() - 0.5) * 4;
+    const v = { x: (tx - from.x) / T, y: (0.3 - from.y - 0.5 * GRENADE.gravity * T * T) / T, z: (tz - from.z) / T };
+    bot.grenades -= 1;
+    bot.grenadeCd = 12;
+    this.grenades.push(new Grenade(from, v, bot.id));
+  }
+  _updateGrenades(dt) {
+    for (const g of this.grenades) {
+      const ev = g.update(dt, this.colliders);
+      if (ev === 'bounce') this.audio.tick?.(Math.hypot(g.pos.x - this.player.pos.x, g.pos.z - this.player.pos.z));
+      if (ev === 'explode') this._explode(g.pos, g.owner, GRENADE.radius);
+      else if (g.owner !== 'player' && !this._warnedGrenades.has(g)
+        && Math.hypot(g.pos.x - this.player.pos.x, g.pos.z - this.player.pos.z) < GRENADE.radius + 2 && g.fuse < 2) {
+        this._warnedGrenades.add(g);
+        this.hud.toast(this.i18n.t('grenadeWarn'), 'bad');
+        this.audio.zoneWarn();
+        haptics.zone();
+      }
+    }
+    this.grenades = this.grenades.filter((g) => !g.exploded);
+  }
+  /**
+   * Blast at `pos`: damages everyone (and every buggy) in reach that has a
+   * clear line from the centre. `owner` is 'player' or a bot id.
+   */
+  _explode(pos, owner, radius = GRENADE.radius, power = 1) {
+    this.effects.explosion(pos, radius * 0.8);
+    const pd = Math.hypot(pos.x - this.player.pos.x, pos.y - this.player.pos.y, pos.z - this.player.pos.z);
+    this.cam.addShake(Math.max(0, 1 - pd / 40));
+    this.audio.explosion?.(pd);
+    const cfg = { ...GRENADE, radius };
+    const c0 = { x: pos.x, y: pos.y + 0.4, z: pos.z };
+    const clear = (t) => !segmentBlocked(c0.x, c0.z, c0.y, t.x, t.z, t.y, this.colliders);
+    const ownerBot = owner === 'player' ? null : this.bots.find((b) => b.id === owner) ?? null;
+    for (const bot of this.bots) {
+      if (!bot.alive) continue;
+      const ch = bot.chest;
+      const dmg = blastDamage(Math.hypot(ch.x - c0.x, ch.y - c0.y, ch.z - c0.z), cfg) * power;
+      if (dmg <= 0 || !clear(ch)) continue;
+      if (owner === 'player') {
+        if (this._damageBot(bot, dmg, ch, 'GRENADE')) this.stats.grenadeKills += 1;
+      } else {
+        bot.health.damage(dmg, this.time);
+        if (!bot.alive) this._onBotDeath(bot, 'bot', 'GRENADE', ownerBot);
+      }
+    }
+    const p = this.player;
+    if (p.alive) {
+      const ch = p.chest;
+      const dmg = blastDamage(Math.hypot(ch.x - c0.x, ch.y - c0.y, ch.z - c0.z), cfg) * power * (p.vehicle ? 0.6 : 1);
+      if (dmg > 0 && clear(ch)) {
+        p.takeDamage(dmg, this.time);
+        this.hud.flashDamage();
+        this.hud.showDamageFrom(this._screenAngleTo(pos));
+        haptics.hitTaken();
+        if (!p.alive) { this.killer = ownerBot; this._deathCause = 'deathGrenade'; this._lose(); }
+      }
+    }
+    for (const b of this.buggies) {
+      if (b.destroyed) continue;
+      const d = Math.hypot(b.pos.x - pos.x, b.pos.z - pos.z);
+      const dmg = blastDamage(d, cfg) * power * 1.6;
+      if (dmg > 0 && b.damage(dmg)) this._wreckBuggy(b, owner);
+    }
+  }
+
+  // ---------------------------------------------------------------- vehicles
+  _enterBuggy(b) {
+    const p = this.player;
+    p.vehicle = b; b.driver = 'player';
+    p.yaw = b.yaw; p.pitch = -0.18;
+    this._healing = false; p.healTimer = 0;
+    this.audio.pickup();
+    this.events.emit('vehicle:enter');
+  }
+  _exitBuggy() {
+    const p = this.player, b = p.vehicle;
+    if (!b) return;
+    const e = b.exitPoint();
+    p.vehicle = null; b.driver = null;
+    p.pos.x = e.x; p.pos.z = e.z; p.pos.y = 0;
+    p.vel.x = 0; p.vel.z = 0; p.vel.y = 0;
+    resolveXZ(p.pos, CONFIG.player.radius, this.colliders, 0, CONFIG.player.height, CONFIG.player.stepHeight);
+    this.events.emit('vehicle:exit');
+  }
+  _wreckBuggy(b, owner) {
+    if (this.player.vehicle === b) this._exitBuggy();
+    this._explode({ x: b.pos.x, y: 0.4, z: b.pos.z }, owner, 6.5, 0.9);
+  }
+  _updateDriving(dt, input) {
+    const p = this.player, b = p.vehicle;
+    const before = b.distance;
+    const res = b.update(dt, { throttle: input.moveZ ?? 0, steer: input.moveX ?? 0 }, this.colliders);
+    this.stats.driven += b.distance - before;
+    // the camera drifts back behind the bonnet unless the thumb is looking around
+    if (Math.abs(input.lookDX) < 1e-4) {
+      let d = b.yaw - p.yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
+      p.yaw += d * Math.min(1, dt * 2.2);
+    }
+    const f = b.forward();
+    p.pos.x = b.pos.x - f.z * 0.32; p.pos.z = b.pos.z + f.x * 0.32; p.pos.y = BUGGY.seat.y;
+    if (res.impact > 4) {
+      this.cam.addShake(Math.min(0.8, res.impact / 25));
+      this.audio.hit(false);
+      haptics.hitTaken();
+      if (res.impact > 12) {
+        p.takeDamage((res.impact - 12) * 1.6, this.time);
+        this.hud.flashDamage();
+        if (!p.alive) { this.killer = null; this._deathCause = 'deathCrash'; this._lose(); }
+      }
+    }
+    // running someone over
+    const sp = Math.abs(b.speed);
+    if (sp > BUGGY.runOverSpeed) {
+      for (const bot of this.bots) {
+        if (!bot.alive) continue;
+        const d = Math.hypot(bot.pos.x - b.pos.x, bot.pos.z - b.pos.z);
+        if (d > BUGGY.radius + bot.radius) continue;
+        this._damageBot(bot, sp * 6, bot.chest, 'BUGGY');
+        bot.pos.x += f.x * 2.5; bot.pos.z += f.z * 2.5;
+        b.speed *= 0.6;
+        b.damage(6);
+      }
+    }
+    if (b.destroyed) this._wreckBuggy(b, 'player');
   }
 
   /**
@@ -388,10 +652,13 @@ export class Game {
     const lang = this.i18n?.lang ?? 'ar';
     if (item.type === 'weapon') {
       const d = WEAPONS[item.weaponId];
+      if (!d) return this.i18n.t(String(item.weaponId).toLowerCase());   // GRENADE, BUGGY
       return lang === 'ar' ? d.nameAr : d.nameEn;
     }
     if (item.type === 'medkit') return this.i18n.t('medkit');
     if (item.type === 'armor') return this.i18n.t('armor');
+    if (item.type === 'grenade') return this.i18n.t('grenade');
+    if (item.type === 'dallah') return this.i18n.t('dallah');
     return this.i18n.t('ammo');
   }
 
@@ -409,7 +676,7 @@ export class Game {
 
     // Touch aim assist. Applied after the raw look so it bends where the thumb
     // put the crosshair rather than fighting it.
-    if (this.aimAssistEnabled) {
+    if (this.aimAssistEnabled && !this._aimingGrenade) {   // no tug while lining up a throw
       const a = computeAimAssist(
         viewFromPlayer(this.player), this._targets(), this.colliders, CONFIG.aim, dt,
       );
@@ -439,8 +706,24 @@ export class Game {
       this.planeT += (CONFIG.drop.planeSpeed * dt) / this.route.length;   // the plane flies on
     }
 
+    // --- vehicles: get in / out ---
+    const p = this.player;
+    const onFoot = !p.vehicle && !p.inPlane && !p.dropping && p.alive;
+    this.nearbyBuggy = null;
+    if (onFoot) {
+      let bd = 3.4;
+      for (const b of this.buggies) {
+        if (b.destroyed || b.driver) continue;
+        const d = Math.hypot(b.pos.x - p.pos.x, b.pos.z - p.pos.z);
+        if (d < bd && p.pos.y < 1.2) { bd = d; this.nearbyBuggy = b; }
+      }
+    }
+    let interact = input.interact;
+    if (interact && p.vehicle) { this._exitBuggy(); interact = false; }
+
     // --- movement / physics ---
     this.player.update(dt, pin, this.colliders);
+    if (p.vehicle) this._updateDriving(dt, input);
     const held = this.player.inventory.weapon;
     this.player.scopeFov = this.player.aiming && held?.def.scope && !held.reloading ? held.def.scope.fov : 0;
     this.player.concealed = this.player.crouching && (this.map.bushes ?? []).some(
@@ -453,8 +736,6 @@ export class Game {
       haptics.hitDealt();
       this._spreadBotsFrom(this.player.pos);
       const loc = this.locationAt(this.player.pos.x, this.player.pos.z);
-      const name = loc ? (this.i18n.lang === 'ar' ? loc.nameAr : loc.nameEn) : '';
-      this.hud.toast(name ? `${this.i18n.t('landed')} — ${name}` : this.i18n.t('landed'), 'kill');
       this.events.emit('player:landed', { location: loc?.id ?? null });
     }
 
@@ -468,8 +749,20 @@ export class Game {
       this.audio.reload();
       this.playerAnim.play(AnimState.RELOAD, w.def.reloadTime);
     }
-    if (input.fire) this._tryFire();
+    if (input.fire && !p.vehicle) this._tryFire();
     this._fireHeld = input.fire;
+
+    // --- grenades: hold to aim (arc preview), release to throw ---
+    const canThrow = !p.vehicle && !p.inPlane && !p.dropping && p.inventory.grenades > 0;
+    if (input.grenade && canThrow) {
+      this._aimingGrenade = true;
+      this._updateGrenadeAim();
+    } else {
+      if (this._aimingGrenade && canThrow) this._throwGrenade();
+      this._aimingGrenade = false;
+      this.arcLine.visible = false;
+      this.arcRing.visible = false;
+    }
 
     // --- healing ---
     if (input.use) this._tryHeal();
@@ -483,9 +776,10 @@ export class Game {
     }
 
     // --- loot ---
-    this.nearbyLoot = (this.player.dropping || this.player.inPlane) ? null
+    this.nearbyLoot = (this.player.dropping || this.player.inPlane || p.vehicle) ? null
       : this.loot.nearest(this.player.pos.x, this.player.pos.z, undefined, this.player.pos.y);
-    if (input.interact && this.nearbyLoot) this._pickup(this.nearbyLoot);
+    if (interact && this.nearbyLoot) this._pickup(this.nearbyLoot);
+    else if (interact && this.nearbyBuggy) this._enterBuggy(this.nearbyBuggy);
 
     // --- bots ---
     const botCtx = {
@@ -504,6 +798,20 @@ export class Game {
       if (wasAlive && !bot.alive) this._onBotDeath(bot, 'zone');
     }
 
+    // --- rival grenades ---
+    if (!this.freezeBots && this.matchTime - this._landedAt > CONFIG.match.spawnGrace + 6) {
+      for (const bot of this.bots) {
+        if (!bot.alive || !bot.grenades) continue;
+        bot.grenadeCd -= dt;
+        if (bot.grenadeCd > 0 || !bot.lastKnown || bot.lostTimer < 0.8 || bot.lostTimer > 3.2) continue;
+        const d = Math.hypot(bot.lastKnown.x - bot.pos.x, bot.lastKnown.z - bot.pos.z);
+        if (d > 9 && d < 30) this._botThrow(bot, bot.lastKnown);
+      }
+    }
+    this._updateGrenades(dt);
+    // parked buggies still need ticking when empty (they coast to a stop)
+    for (const b of this.buggies) if (b !== p.vehicle && Math.abs(b.speed) > 0) b.update(dt, { throttle: 0, steer: 0 }, this.colliders);
+
     // --- supply drop ---
     const ev = this.airdrop.update(dt, this.matchTime, this.zone, this.colliders, this.rng);
     if (ev === 'incoming') {
@@ -517,6 +825,7 @@ export class Game {
       this.lootView.sync(this.loot.items);
       this.effects.impact({ x: this.airdrop.pos.x, y: this.airdrop.pos.y + 0.2, z: this.airdrop.pos.z }, false);
       this.hud.toast(this.i18n.t('airdropLanded'), 'kill');
+      this._airdropIds = new Set(fresh.map((f) => f.id));
     }
 
     // --- zone ---
@@ -545,9 +854,10 @@ export class Game {
     const near = Math.hypot(this.player.pos.x - ms.x, this.player.pos.z - ms.z) < 6;
     if (near !== this.mansourNear) {
       this.mansourNear = near;
-      this.hud.showMansour(near);
+      this.hud.showMansour(near, this.quest?.state);
       if (near) this.audio.pickup();
     }
+    if (near && this.quest?.state === 'carry') this._deliverCoffee();
 
     // --- win / lose ---
     if (this.state === MatchState.PLAYING) {
@@ -590,6 +900,19 @@ export class Game {
       pr.rotation.set(0, Math.atan2(this.route.dir.x, this.route.dir.z), Math.sin(this.time * 0.8) * 0.03);
     }
     root.visible = !p.inPlane && !p.scopeFov;
+    if (p.vehicle) root.rotation.y = p.vehicle.yaw + Math.PI;
+    // buggies (distance-culled like the bots) and grenades in flight
+    const cpos = this.cam.camera.position;
+    this.buggies.forEach((b, i) => {
+      const v = this.buggyViews[i];
+      v.root.visible = Math.hypot(b.pos.x - cpos.x, b.pos.z - cpos.z) < 150 && this.state !== MatchState.IDLE;
+      if (v.root.visible) v.update(b, this.time);
+    });
+    this.grenadeViews.forEach((v, i) => {
+      const g = this.grenades[i];
+      v.root.visible = !!g;
+      if (g) { v.root.position.set(g.pos.x, g.pos.y, g.pos.z); v.root.rotation.x += dt * 9; }
+    });
     // Fog thins with altitude so the map is readable from the plane and the fall.
     const q = QUALITY[this.quality] ?? QUALITY.med;
     const lift = Math.max(0, this.cam.camera.position.y - 12);
@@ -608,7 +931,7 @@ export class Game {
     else if (anim.oneShot <= 0) {
       anim.play(resolveState({
         alive: p.alive, reloading: !!w?.reloading, firing: false,
-        grounded: p.grounded, crouching: p.crouching, aiming: p.aiming, speed: p.speed,
+        grounded: p.grounded, crouching: p.crouching || !!p.vehicle, aiming: p.aiming, speed: p.speed,
       }));
     }
     anim.update(dt, { speed: p.speed, aiming: p.aiming, pitch: p.pitch, armed: !!w });
@@ -647,7 +970,9 @@ export class Game {
     this.lootView.update(dt, this.time, this.player.pos);
     this.effects.update(dt);
     this.lobbyLight.visible = this.state === MatchState.IDLE;
-    if (this.state === MatchState.IDLE) this._showcaseCamera();
+    if (this.cinematic) this._cinematicCamera(dt);
+    else if (this.state === MatchState.IDLE) this._showcaseCamera();
+    else if (this.state === MatchState.WON) this._victoryCamera(dt);
     else this.cam.update(dt, this.player, this.colliders);
     // Follow the player so the shadow frustum stays tight (= sharp shadows on a
     // small map without a huge shadow map).
@@ -658,6 +983,43 @@ export class Game {
       this.player.pos.z + SUN_DIR.z * 120,
     );
     this.sky.mesh.position.copy(this.cam.camera.position);
+    this.scenery.update(dt, this.cam.camera, this.time);
+  }
+
+  /** Story shots: glide the camera to a framed position and hold. */
+  _cinematicCamera(dt) {
+    const c = this.cam.camera, k = this.cinematic;
+    const a = Math.min(1, dt * 1.6);
+    if (!k.started) { c.position.set(k.pos.x, k.pos.y, k.pos.z); k.started = true; k.cur = { ...k.look }; }
+    c.position.x += (k.pos.x - c.position.x) * a; c.position.y += (k.pos.y - c.position.y) * a; c.position.z += (k.pos.z - c.position.z) * a;
+    k.cur.x += (k.look.x - k.cur.x) * a; k.cur.y += (k.look.y - k.cur.y) * a; k.cur.z += (k.look.z - k.cur.z) * a;
+    c.fov = 50; c.updateProjectionMatrix();
+    c.lookAt(k.cur.x, k.cur.y, k.cur.z);
+  }
+
+  /** Victory: a slow orbit round Saeed while OCTA celebrates. */
+  _victoryCamera(dt) {
+    const c = this.cam.camera, p = this.player.pos;
+    this._orbit = (this._orbit ?? Math.atan2(c.position.x - p.x, c.position.z - p.z)) + dt * 0.45;
+    const r = 4.6;
+    c.position.set(p.x + Math.sin(this._orbit) * r, p.y + 1.9, p.z + Math.cos(this._orbit) * r);
+    c.fov = 55; c.updateProjectionMatrix();
+    c.lookAt(p.x, p.y + 1.1, p.z);
+  }
+
+  /** Story camera shots, by panel. */
+  storyShot(i) {
+    const v = this.map.pois.find((x) => x.id === 'village') ?? { x: -160, z: -170 };
+    const town = this.map.pois.find((x) => x.id === 'town') ?? { x: 0, z: -165 };
+    const m = this.map.spawns.npcMansour, s = this.player.pos;
+    const shots = [
+      { pos: { x: v.x + 22, y: 7, z: v.z + 24 }, look: { x: v.x - 2, y: 2.5, z: v.z - 2 } },
+      { pos: { x: 40, y: 190, z: 330 }, look: { x: 0, y: 0, z: -20 } },
+      { pos: { x: town.x + 20, y: 9, z: town.z + 34 }, look: { x: town.x, y: 4, z: town.z } },
+      { pos: { x: m.x + 2.6, y: 1.8, z: m.z + 3.4 }, look: { x: m.x, y: 1.4, z: m.z } },
+      { pos: { x: s.x - 1.4, y: 1.5, z: s.z + 3.2 }, look: { x: s.x, y: 1.25, z: s.z } },
+    ];
+    this.cinematic = shots[Math.max(0, Math.min(shots.length - 1, i))];
   }
 
   /** Lobby framing: Saeed on a slow turntable, offset away from the menu panel. */
@@ -804,6 +1166,7 @@ export class Game {
       this.stats.kills = this.player.kills;
       this._onBotDeath(bot, 'player', weaponId);
     }
+    return killed;
   }
 
   /** World point -> CSS pixel position, or null when behind the camera. */
@@ -895,7 +1258,11 @@ export class Game {
         };
     this.effects.tracer(muzzle, to);
     if (!accurate || !p.alive) return;
-    const dmg = botShotDamage(def, dist);
+    let dmg = botShotDamage(def, dist);
+    if (p.vehicle) {                       // the buggy's cage takes part of it
+      if (p.vehicle.damage(dmg * 0.8)) { this._wreckBuggy(p.vehicle, bot.id); return; }
+      dmg *= 0.6;
+    }
     p.takeDamage(dmg, this.time);
     if (!p.alive) this.killer = bot;
     this._healing = false;
@@ -923,9 +1290,16 @@ export class Game {
       this.hud.toast(this.i18n.t('armorFound'), 'kill');
     } else if (res.type === 'ammo') {
       this.hud.toast(`+${res.amount} ${this.i18n.t('ammoFound')}`);
+    } else if (res.type === 'grenade') {
+      this.hud.toast(`+1 ${this.i18n.t('grenade')}`);
+    } else if (res.type === 'dallah') {
+      this.quest.state = 'carry';
+      this.hud.banner(this.i18n.t('dallahFound'), this.i18n.t('dallahSub'));
+      this.octaMood = 2;
     } else {
       this.hud.toast(`+1 ${this.i18n.t('medkitFound')}`);
     }
+    if (this._airdropIds?.has(item.id)) { this._airdropIds = null; this.stats.airdrops += 1; }
     if (before !== inv.weapon?.id) this._equipWeaponModel();
     this.lootView.sync(this.loot.items);
   }
@@ -937,7 +1311,7 @@ export class Game {
     s.time = this.matchTime;
     s.won = won;
     s.placement = won ? 1 : this.aliveBots + 1;
-    s.killer = won ? null : (this.killer ? this.botName(this.killer) : this.i18n.t('zoneKiller'));
+    s.killer = won ? null : (this.killer ? this.botName(this.killer) : this.i18n.t(this._deathCause ?? 'zoneKiller'));
     s.accuracy = s.shots ? s.hits / s.shots : 0;
     return { ...s };
   }
@@ -955,6 +1329,7 @@ export class Game {
     this.audio.defeat();
     haptics.death();
     const sum = this._summary(false);
+    this.timeScale = 0.3;                         // slow motion while the kill-cam turns
     this.hud.killFeed(sum.killer, this.i18n.t('saeed'), '', false);
     this.hud.banner(this.i18n.t('eliminatedBy'), sum.killer, 'bad');
     this.events.emit('match:lose', sum);
@@ -1010,6 +1385,7 @@ export class Game {
     this.effects.dispose();
     this.lootView.dispose();
     this.world.dispose();
+    this.scenery?.dispose();
     this.zoneVisual.dispose();
     this.renderer.dispose();
   }

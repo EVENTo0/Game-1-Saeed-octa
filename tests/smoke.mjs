@@ -7,7 +7,7 @@
  */
 import { chromium, devices } from 'playwright';
 import { spawn } from 'node:child_process';
-import { mkdirSync, existsSync, globSync } from 'node:fs';
+import { mkdirSync, existsSync, globSync, readFileSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 const APP_URL = 'http://localhost:4173/';
@@ -81,7 +81,8 @@ async function main() {
   // ---------- v2: lobby ----------
   ok('lobby shows the player level and four outfits', await page.evaluate(() =>
     document.getElementById('lv-num').textContent === '1' && document.querySelectorAll('#skin-list .skin').length === 4));
-  ok('lobby shows the build version', /^v2\./.test(await page.textContent('#app-version')));
+  const pkgVersion = JSON.parse(readFileSync(new globalThis.URL('../package.json', import.meta.url), 'utf8')).version;
+  ok('lobby shows the build version', (await page.textContent('#app-version')) === `v${pkgVersion}`);
   const mapBox = await page.locator('#drop-map').boundingBox();
   await page.locator('#drop-map').tap({ position: { x: mapBox.width * 0.5, y: mapBox.height * 0.5 } });
   ok('tapping the drop map marks a landing spot', await page.evaluate(() =>
@@ -605,7 +606,13 @@ async function main() {
     g.player.pos.x = g.zone.center.x; g.player.pos.z = g.zone.center.z;
     g.bots.filter((b) => b.alive).forEach((b) => g._damageBot(b, 999));
   });
-  await sleep(2200);
+  // the orbit camera and confetti play for ~3 s before the results land
+  await sleep(300);
+  const confetti = await page.evaluate(() => document.querySelectorAll('#confetti i').length);
+  const feedRows = await page.evaluate(() => document.querySelectorAll('#kill-feed .kf-row').length);
+  ok('victory throws confetti over the orbit shot', confetti > 20, String(confetti));
+  ok('eliminations appear in the kill feed', feedRows > 0, String(feedRows));
+  await page.waitForSelector('#victory:not(.hidden)', { timeout: 8000 }).catch(() => {});
   ok('victory screen appears when every opponent is down', await page.isVisible('#victory'));
   const winText = await page.textContent('#victory .win');
   ok('victory headline reads مبروك يا سعيد!', winText.trim() === 'مبروك يا سعيد!', winText);
@@ -620,7 +627,6 @@ async function main() {
   }));
   ok('results show 1st place and four stats', res.place.startsWith('#1') && res.stats === 4, JSON.stringify(res));
   ok('the win awards XP and is saved to the profile', /\+\d+ XP/.test(res.total) && res.xp > 0 && res.wins === 1, res.total);
-  ok('eliminations appear in the kill feed', res.feed > 0);
   await page.screenshot({ path: `${SHOTS}09-victory.png` });
 
   // ---------- restart without a reload ----------
@@ -641,10 +647,41 @@ async function main() {
   await sleep(2400);
   ok('defeat screen appears when Saeed dies', await page.isVisible('#defeat'));
   ok('defeat headline reads انتهت الجولة', (await page.textContent('#defeat .lose')).trim() === 'انتهت الجولة');
+  ok('defeat drains the colour from the scene', await page.evaluate(() => document.getElementById('game-canvas').classList.contains('desat')));
   await page.screenshot({ path: `${SHOTS}10-defeat.png` });
   await page.locator('#btn-retry').tap();
   await sleep(700);
   ok('retry starts a fresh round', await page.evaluate(() => globalThis.SAEED.game.state) === 'playing');
+  ok('retry restores full colour', await page.evaluate(() => !document.getElementById('game-canvas').classList.contains('desat')));
+
+  // ---------- story ----------
+  // leaving a lost round for the lobby must also end its slow motion
+  await page.evaluate(() => { globalThis.SAEED.game.timeScale = 0.3; globalThis.SAEED.goMenu(); });
+  await sleep(500);
+  ok('the lobby runs at normal speed after a defeat', await page.evaluate(() => globalThis.SAEED.game.timeScale) === 1);
+  await page.locator('#btn-story').tap();
+  await sleep(1200);
+  const s1 = await page.evaluate(() => ({
+    visible: !document.getElementById('story').classList.contains('hidden'),
+    text: document.getElementById('story-text').textContent,
+    dots: document.querySelectorAll('#story-dots i').length,
+    cam: globalThis.SAEED.game.cam.camera.position.toArray(),
+  }));
+  ok('the story opens from the lobby with five panels', s1.visible && s1.dots === 5 && s1.text.includes('أوكتا'), JSON.stringify(s1));
+  await page.screenshot({ path: `${SHOTS}14-story.png` });
+  await page.locator('#story-next').tap();
+  await sleep(1500);
+  const s2 = await page.evaluate(() => ({
+    text: document.getElementById('story-text').textContent,
+    cam: globalThis.SAEED.game.cam.camera.position.toArray(),
+  }));
+  ok('NEXT moves to panel 2 and an aerial camera shot', s2.text.includes('سعيد رويال') && s2.cam[1] > 60, JSON.stringify(s2.cam));
+  await page.screenshot({ path: `${SHOTS}15-story-aerial.png` });
+  await page.locator('#story-skip').tap();
+  await sleep(500);
+  ok('SKIP returns to the lobby', await page.isVisible('#menu') && await page.evaluate(() => globalThis.SAEED.game.cinematic === null));
+  await page.evaluate(() => globalThis.SAEED.startMatch());
+  await sleep(500);
 
   // ---------- Uncle Mansour ----------
   const mansour = await page.evaluate(async () => {
@@ -660,6 +697,97 @@ async function main() {
   ok('Uncle Mansour greets Saeed near the village', mansour.visible);
   ok('Mansour says the coffee line', mansour.line.includes('وين القهوة'), mansour.line);
   await page.screenshot({ path: `${SHOTS}11-mansour.png` });
+
+  // ---------- v3 depth: daily challenges, grenades, buggies, coffee quest ----------
+  ok('the lobby lists three daily challenges', await page.evaluate(() => document.querySelectorAll('#challenge-list .ch-row').length) === 3);
+
+  const nade = await page.evaluate(async () => {
+    const S = globalThis.SAEED, g = S.game, p = g.player;
+    g.freezeBots = true;
+    // an open patch of ground: nothing solid within 16 m
+    let spot = null;
+    for (let i = 0; i < 20000 && !spot; i++) {
+      const x = (Math.random() * 2 - 1) * 200, z = (Math.random() * 2 - 1) * 200;
+      if (!g.colliders.some((c) => c.tag !== 'bounds' && Math.abs(x - c.x) < c.hw + 30 && Math.abs(z - c.z) < c.hd + 30)) spot = { x, z };
+    }
+    p.pos.x = spot.x; p.pos.z = spot.z; p.pos.y = 0; p.yaw = 0; p.pitch = 0.05;
+    p.health.value = p.health.max;
+    p.inventory.grenades = 2;
+    S.input.state.grenade = true;
+    await new Promise((r) => setTimeout(r, 400));
+    const arc = g.arcLine.visible && g.arcRing.visible;
+    const land = { x: g.arcRing.position.x, z: g.arcRing.position.z };
+    // park the nearest living rival right where the arc lands
+    const bot = g.bots.filter((b) => b.alive)[0];
+    bot.pos.x = land.x + 1; bot.pos.z = land.z; bot.health.value = 60;
+    const kills0 = g.stats.grenadeKills;
+    S.input.state.grenade = false;
+    await new Promise((r) => setTimeout(r, 120));
+    const flying = g.grenades.length;
+    // software rendering runs game time slower than the wall clock: wait on the fuse itself
+    const t0 = performance.now();
+    while (g.grenades.length && performance.now() - t0 < 20000) await new Promise((r) => setTimeout(r, 100));
+    return { arc, dist: Math.hypot(land.x - spot.x, land.z - spot.z), flying, left: p.inventory.grenades,
+      botAlive: bot.alive, kills: g.stats.grenadeKills - kills0 };
+  });
+  ok('holding the grenade button shows the throw arc and landing ring', nade.arc, JSON.stringify(nade));
+  ok('releasing throws a frag 10-35 m out', nade.flying === 1 && nade.left === 1 && nade.dist > 10 && nade.dist < 35, JSON.stringify(nade));
+  ok('the blast eliminates a rival at the landing point and counts a grenade kill', !nade.botAlive && nade.kills === 1, JSON.stringify(nade));
+
+  const drive = await page.evaluate(async () => {
+    const S = globalThis.SAEED, g = S.game, p = g.player;
+    const b = g.buggies.find((x) => !x.destroyed);
+    const e = b.exitPoint();
+    p.pos.x = e.x; p.pos.z = e.z; p.pos.y = 0;
+    await new Promise((r) => setTimeout(r, 200));
+    const prompt = document.getElementById('pickup-text').textContent;
+    S.input.state.interact = true;
+    await new Promise((r) => setTimeout(r, 200));
+    const inside = p.vehicle === b;
+    const d0 = b.distance;
+    S.input.keyboard.z = 1; S.input.syncMove();
+    const t0 = performance.now();
+    while (b.distance - d0 < 12 && performance.now() - t0 < 15000) await new Promise((r) => setTimeout(r, 100));
+    const speed = Math.abs(b.speed), moved = b.distance - d0;
+    const speedo = !document.getElementById('speedo').classList.contains('hidden');
+    return { prompt, inside, speed, moved, speedo, follow: Math.hypot(p.pos.x - b.pos.x, p.pos.z - b.pos.z) };
+  });
+  ok('standing by a buggy offers a ride', drive.prompt.includes('البقّي'), drive.prompt);
+  ok('interact climbs into the buggy', drive.inside);
+  ok('throttle drives it, with a speedometer on screen', drive.moved >= 12 && drive.speed > 8 && drive.speedo, JSON.stringify(drive));
+  ok('Saeed rides in the seat', drive.follow < 1, String(drive.follow));
+  await page.screenshot({ path: `${SHOTS}16-buggy.png` });
+  const out = await page.evaluate(async () => {
+    const S = globalThis.SAEED, g = S.game;
+    S.input.keyboard.z = 0; S.input.syncMove();
+    await new Promise((r) => setTimeout(r, 900));
+    S.input.state.interact = true;
+    await new Promise((r) => setTimeout(r, 200));
+    return { out: !g.player.vehicle, driven: g.stats.driven };
+  });
+  ok('interact again gets out, and the distance counts toward challenges', out.out && out.driven > 8, JSON.stringify(out));
+
+  const quest = await page.evaluate(async () => {
+    const S = globalThis.SAEED, g = S.game, p = g.player;
+    const it = g.quest.item;
+    const chip0 = !document.getElementById('quest-chip').classList.contains('hidden');
+    p.pos.x = it.x + 0.5; p.pos.z = it.z; p.pos.y = it.ground ?? 0;
+    await new Promise((r) => setTimeout(r, 200));
+    S.input.state.interact = true;
+    await new Promise((r) => setTimeout(r, 300));
+    const carrying = g.quest.state;
+    const chipText = document.getElementById('quest-text').textContent;
+    p.inventory.armor = 0;
+    const m = g.map.spawns.npcMansour;
+    p.pos.x = m.x + 2; p.pos.z = m.z + 2; p.pos.y = 0;
+    await new Promise((r) => setTimeout(r, 400));
+    return { chip0, carrying, chipText, state: g.quest.state, armor: p.inventory.armor, coffee: g.stats.coffee,
+      line: document.getElementById('mansour-line').textContent };
+  });
+  ok('the coffee quest shows an objective from the start', quest.chip0);
+  ok('picking up the dallah switches the objective to Mansour', quest.carrying === 'carry' && quest.chipText.includes('منصور'), JSON.stringify(quest));
+  ok('delivering it rewards full armour and thanks from Mansour', quest.state === 'done' && quest.armor > 0 && quest.coffee && quest.line.includes('العافية'), JSON.stringify(quest));
+  await page.screenshot({ path: `${SHOTS}17-coffee.png` });
 
   // ---------- draw-call budget ----------
   const perfInfo = await page.evaluate(() => {

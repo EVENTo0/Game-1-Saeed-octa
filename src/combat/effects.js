@@ -42,6 +42,31 @@ export class EffectsSystem {
       scene.add(m);
       this.flashes.push({ mesh: m, life: 0 });
     }
+
+    // grenade / vehicle blasts: an additive fireball and a smoke shell, pooled
+    this.blastGeo = new THREE.SphereGeometry(1, 14, 10);
+    this.fireMat = new THREE.MeshBasicMaterial({ color: 0xffb347, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+    this.smokeMat = new THREE.MeshLambertMaterial({ color: 0x4a3c30, emissive: 0x2a1c10, transparent: true, opacity: 0.85, depthWrite: false, fog: false });
+    this.blasts = [];
+    for (let i = 0; i < 3; i++) {
+      const fire = new THREE.Mesh(this.blastGeo, this.fireMat.clone());
+      const smoke = new THREE.Mesh(this.blastGeo, this.smokeMat.clone());
+      fire.visible = smoke.visible = false;
+      scene.add(fire, smoke);
+      this.blasts.push({ fire, smoke, life: 0, r: 1 });
+    }
+  }
+  /** A grenade or vehicle going off: fireball, smoke and a ring of sparks. */
+  explosion(point, radius = 6) {
+    const e = this.blasts.find((b) => b.life <= 0) ?? this.blasts[0];
+    e.fire.position.set(point.x, point.y + 0.4, point.z);
+    e.smoke.position.set(point.x, point.y + 0.8, point.z);
+    e.fire.visible = e.smoke.visible = true;
+    e.life = 1.4; e.r = radius;
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2;
+      this.impact({ x: point.x + Math.cos(a) * radius * 0.35, y: point.y + 0.3 + Math.random() * 1.2, z: point.z + Math.sin(a) * radius * 0.35 }, false);
+    }
   }
   _take(arr) {
     for (const e of arr) if (e.life <= 0) return e;
@@ -83,11 +108,25 @@ export class EffectsSystem {
     for (const e of this.impacts) {
       if (e.life > 0) e.mesh.scale.multiplyScalar(1 + dt * 3);
     }
+    for (const e of this.blasts) {
+      if (e.life <= 0) continue;
+      e.life -= dt;
+      const k = 1 - Math.max(0, e.life) / 1.4;             // 0 -> 1 over the blast
+      const fk = Math.min(1, k * 6);
+      e.fire.scale.setScalar(e.r * (0.25 + 0.5 * fk));
+      e.fire.material.opacity = Math.max(0, 1 - k * 3.2);
+      e.smoke.scale.setScalar(e.r * (0.3 + 0.7 * Math.sqrt(k)));
+      e.smoke.position.y += dt * 1.4;
+      e.smoke.material.opacity = 0.85 * (1 - k * k);
+      if (e.life <= 0) e.fire.visible = e.smoke.visible = false;
+    }
   }
   dispose() {
     [...this.tracers, ...this.impacts, ...this.flashes].forEach((e) => this.scene.remove(e.mesh));
     this.tracerGeo.dispose(); this.tracerMat.dispose();
     this.impactGeo.dispose(); this.impactMat.dispose(); this.bloodMat.dispose();
     this.flashGeo.dispose(); this.flashMat.dispose();
+    for (const b of this.blasts) { this.scene.remove(b.fire, b.smoke); b.fire.material.dispose(); b.smoke.material.dispose(); }
+    this.blastGeo.dispose(); this.fireMat.dispose(); this.smokeMat.dispose();
   }
 }

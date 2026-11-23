@@ -78,19 +78,21 @@ export function buildWorld(map, { quality = 'med' } = {}) {
   const roofMat = { mud: matRoof, concrete: matConcrete, tent: matTent, plaster: matPlaster, stone: matStone, metal: matMetal, barn: matBarn };
 
   // ---------- ground ----------
-  // A displaced plane, not a flat one: gentle dunes give the sun something to
+  // A displaced plane reaching under the mountain ring (no sky gap from the air),
+  // not a flat one: gentle dunes give the sun something to
   // rake across, which is most of what sells "desert" at a distance.
   const SEG = quality === 'low' ? 24 : 64;
   const HALF = map.half ?? 110;
-  const groundGeo = new THREE.PlaneGeometry(HALF * 2 + 160, HALF * 2 + 160, SEG * 2, SEG * 2);
+  const groundGeo = new THREE.PlaneGeometry(HALF * 2 + 360, HALF * 2 + 360, SEG * 3, SEG * 3);
   const pos = groundGeo.attributes.position;
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), y = pos.getY(i);
     const d = Math.hypot(x, y);
     // keep the playable middle flat so dunes never fight the collision boxes
     const falloff = Math.min(1, Math.max(0, (Math.max(Math.abs(x), Math.abs(y)) - HALF - 6) / 45));
-    const dune = Math.sin(x * 0.035) * Math.cos(y * 0.028) * 3.2
-      + Math.sin(x * 0.011 + y * 0.013) * 5.0;
+    // gentle swell only: steep out-of-bounds dunes read as a dark band in front of the mountains
+    const dune = Math.sin(x * 0.035) * Math.cos(y * 0.028) * 1.2
+      + Math.sin(x * 0.011 + y * 0.013) * 1.6 + 0.6;
     pos.setZ(i, dune * falloff);
   }
   groundGeo.computeVertexNormals();
@@ -422,12 +424,12 @@ export function buildWorld(map, { quality = 'med' } = {}) {
   // ---------- boundary marker fence (visual only) ----------
   const bGeo = new THREE.BoxGeometry(1, 1, 1);
   disposables.push(bGeo);
-  const bMat = M(0x8a7355, 'rock');
+  const bMat = M(0xc7a273, 'sand');                // a low sand berm, not a dark wall
   for (const c of map.colliders) {
     if (c.tag !== 'bounds') continue;
     const m = new THREE.Mesh(bGeo, bMat);
-    m.position.set(c.x, 1.2, c.z);
-    m.scale.set(c.hw * 2, 2.4, c.hd * 2);
+    m.position.set(c.x, 0.5, c.z);
+    m.scale.set(c.hw * 2 + 4, 1.0, c.hd * 2 + 4);
     group.add(m);
   }
 

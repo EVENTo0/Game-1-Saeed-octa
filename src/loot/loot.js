@@ -5,7 +5,7 @@ export function makeLootItem(spot, jitter = 0) {
   const [type, weaponId] = spot.kind.split(':');
   return {
     id: `loot_${nextId++}`,
-    type,                       // 'weapon' | 'ammo' | 'medkit' | 'armor'
+    type,                       // 'weapon' | 'ammo' | 'medkit' | 'armor' | 'grenade' | 'dallah'
     special: !!spot.special,    // supply-drop loot gets a light beam
     weaponId: weaponId ?? null,
     ammoType: spot.ammoType ?? 'rifle',
@@ -48,6 +48,15 @@ export class LootManager {
       if (!inventory.addArmor()) return null;
       item.taken = true;
       return { type: 'armor', item };
+    }
+    if (item.type === 'grenade') {
+      if (!inventory.addGrenade()) return null;
+      item.taken = true;
+      return { type: 'grenade', item };
+    }
+    if (item.type === 'dallah') {                 // Uncle Mansour's coffee pot: a quest item
+      item.taken = true;
+      return { type: 'dallah', item };
     }
     if (item.type === 'ammo') {
       if (!inventory.slots.length) return null;   // nothing to load

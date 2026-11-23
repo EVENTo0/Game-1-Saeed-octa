@@ -9,7 +9,7 @@ import { damp } from '../core/mathx.js';
  */
 export class ThirdPersonCamera {
   constructor(aspect = 16 / 9) {
-    this.camera = new THREE.PerspectiveCamera(CONFIG.camera.fov, aspect, 0.15, 600);
+    this.camera = new THREE.PerspectiveCamera(CONFIG.camera.fov, aspect, 0.15, 1100);   // far enough for the mountain ring
     this.distance = CONFIG.camera.distance;
     this.currentDist = this.distance;
     this.shake = 0;
@@ -20,7 +20,7 @@ export class ThirdPersonCamera {
   update(dt, player, colliders) {
     const C = CONFIG.camera;
     const aiming = player.aiming;
-    const wantDist = player.inPlane ? C.planeDistance : player.dropping ? C.dropDistance : aiming ? C.aimDistance : C.distance;
+    const wantDist = player.inPlane ? C.planeDistance : player.dropping ? C.dropDistance : player.vehicle ? C.vehicleDistance : aiming ? C.aimDistance : C.distance;
     const scoped = player.scopeFov ?? 0;
     const wantFov = scoped || (aiming ? C.aimFov : C.fov);
     // through the scope the camera sits at the eye: first person

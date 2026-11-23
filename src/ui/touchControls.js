@@ -78,6 +78,7 @@ export class TouchControls {
       case 'swap': s.swap = true; break;
       case 'heal': s.use = true; break;
       case 'run': s.run = !s.run; btn.classList.toggle('toggled', s.run); break;
+      case 'grenade': s.grenade = true; break;
       default: break;
     }
   }
@@ -85,6 +86,7 @@ export class TouchControls {
     const s = this.input.state;
     btn.classList.remove('pressed');
     if (btn.dataset.action === 'fire') s.fire = false;
+    if (btn.dataset.action === 'grenade') s.grenade = false;
   }
 
   _onDown(e) {
@@ -95,7 +97,8 @@ export class TouchControls {
       e.preventDefault();
       this.buttonTouches.set(e.pointerId, btn);
       this._buttonDown(btn);
-      if (btn.dataset.action === 'fire') this.fireLook = { id: e.pointerId, x: e.clientX, y: e.clientY };
+      // fire and grenade both keep aiming while the thumb drags off the button
+      if (btn.dataset.action === 'fire' || btn.dataset.action === 'grenade') this.fireLook = { id: e.pointerId, x: e.clientX, y: e.clientY };
       return;
     }
     // other controls (pause, menus) keep their own taps
