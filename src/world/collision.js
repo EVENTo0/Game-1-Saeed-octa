@@ -73,31 +73,47 @@ export function segmentBlocked(ax, az, ay, bx, bz, by, colliders) {
  * Slab method; dir must be normalized.
  */
 export function raycastBoxes(origin, dir, colliders, maxDist = 200) {
+  // Allocation-free slab test with a cheap bounding-box reject first: on the
+  // 520 m map there are ~800 boxes and most are nowhere near the ray.
   let best = maxDist;
   let bestBox = null;
-  for (const c of colliders) {
+  const ox = origin.x, oy = origin.y, oz = origin.z;
+  const dx = dir.x, dy = dir.y, dz = dir.z;
+  const ex = ox + dx * maxDist, ey = oy + dy * maxDist, ez = oz + dz * maxDist;
+  const sminx = Math.min(ox, ex), smaxx = Math.max(ox, ex);
+  const sminy = Math.min(oy, ey), smaxy = Math.max(oy, ey);
+  const sminz = Math.min(oz, ez), smaxz = Math.max(oz, ez);
+  const ix = Math.abs(dx) < 1e-8 ? 0 : 1 / dx;
+  const iy = Math.abs(dy) < 1e-8 ? 0 : 1 / dy;
+  const iz = Math.abs(dz) < 1e-8 ? 0 : 1 / dz;
+  for (let k = 0; k < colliders.length; k++) {
+    const c = colliders[k];
     const minx = c.x - c.hw, maxx = c.x + c.hw;
+    if (maxx < sminx || minx > smaxx) continue;
     const minz = c.z - c.hd, maxz = c.z + c.hd;
+    if (maxz < sminz || minz > smaxz) continue;
     const miny = c.bottom, maxy = c.top;
+    if (maxy < sminy || miny > smaxy) continue;
     let t0 = 0, t1 = best;
-    let ok = true;
-    const axes = [
-      [origin.x, dir.x, minx, maxx],
-      [origin.y, dir.y, miny, maxy],
-      [origin.z, dir.z, minz, maxz],
-    ];
-    for (const [o, d, lo, hi] of axes) {
-      if (Math.abs(d) < 1e-8) {
-        if (o < lo || o > hi) { ok = false; break; }
-        continue;
-      }
-      let ta = (lo - o) / d, tb = (hi - o) / d;
-      if (ta > tb) { const s = ta; ta = tb; tb = s; }
-      if (ta > t0) t0 = ta;
-      if (tb < t1) t1 = tb;
-      if (t0 > t1) { ok = false; break; }
+    if (ix === 0) { if (ox < minx || ox > maxx) continue; } else {
+      let ta = (minx - ox) * ix, tb = (maxx - ox) * ix;
+      if (ta > tb) { const t = ta; ta = tb; tb = t; }
+      if (ta > t0) t0 = ta; if (tb < t1) t1 = tb;
+      if (t0 > t1) continue;
     }
-    if (ok && t0 > 0 && t0 < best) { best = t0; bestBox = c; }
+    if (iy === 0) { if (oy < miny || oy > maxy) continue; } else {
+      let ta = (miny - oy) * iy, tb = (maxy - oy) * iy;
+      if (ta > tb) { const t = ta; ta = tb; tb = t; }
+      if (ta > t0) t0 = ta; if (tb < t1) t1 = tb;
+      if (t0 > t1) continue;
+    }
+    if (iz === 0) { if (oz < minz || oz > maxz) continue; } else {
+      let ta = (minz - oz) * iz, tb = (maxz - oz) * iz;
+      if (ta > tb) { const t = ta; ta = tb; tb = t; }
+      if (ta > t0) t0 = ta; if (tb < t1) t1 = tb;
+      if (t0 > t1) continue;
+    }
+    if (t0 > 0 && t0 < best) { best = t0; bestBox = c; }
   }
   return { distance: best, box: bestBox, hit: bestBox !== null };
 }

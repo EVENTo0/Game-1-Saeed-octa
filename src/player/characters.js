@@ -11,13 +11,13 @@ import { getSharedTextures } from '../world/textures.js';
  */
 
 export const PALETTE = {
-  armor: 0x24212f,
+  armor: 0x3a3452,
   armorLight: 0x3a3055,
   purple: 0x8250ff,
   purpleLight: 0x9b7bff,
   gold: 0xe8bd47,
   skin: 0xb07a4e,
-  cloth: 0x2b2440,
+  cloth: 0x463d63,
   octa: 0x8b4cf0,
   visor: 0x39e0d0,
 };
@@ -61,11 +61,13 @@ function getFamilyMaterials() {
       // Metalness above ~0.2 turns dark tactical colours into pure silhouette,
       // because metals have no diffuse term.
       vertexColors: true, roughness: 0.48, metalness: 0.14,
-      map: t.armour?.map ?? null, normalMap: t.armour?.normalMap ?? null,
+      // colour comes from the vertex colours; the dark albedo map would
+      // multiply every outfit towards black, so only the surface detail is used
+      normalMap: t.armour?.normalMap ?? null,
     }),
     soft: new THREE.MeshStandardMaterial({
       vertexColors: true, roughness: 0.93, metalness: 0.0,
-      map: t.cloth?.map ?? null, normalMap: t.cloth?.normalMap ?? null,
+      normalMap: t.cloth?.normalMap ?? null,
     }),
   };
   return familyMaterials;
@@ -113,7 +115,7 @@ export function buildHumanoid(opts = {}) {
   const mGold = mat(gold, { family: 'hard' });
   const mSkin = mat(PALETTE.skin, { family: 'soft' });
   const mCloth = mat(cloth, { family: 'soft' });
-  const mRubber = mat(0x14141a, { family: 'hard' });
+  const mRubber = mat(0x26242e, { family: 'hard' });
   // the visor glows, so it stays unlit and emissive
   const mVisor = new THREE.MeshStandardMaterial({
     color: opts.visor ?? PALETTE.visor,
@@ -122,78 +124,91 @@ export function buildHumanoid(opts = {}) {
   });
   const materials = [mArmor, mAccent, mGold, mSkin, mCloth, mVisor, mRubber];
 
-  // hips -> spine -> chest -> head, arms and legs hang off spine/hips
+  // hips -> spine -> chest -> head, arms and legs hang off spine/hips.
+  // v2.2 body: capsule limbs, a shaped torso, helmet, plate carrier and a
+  // backpack. Same rig node names as before, so animation is unchanged.
   const hips = new THREE.Group(); hips.position.y = 0.92; root.add(hips);
   const spine = new THREE.Group(); hips.add(spine);
+  const cap = (r, len, m, x, y, z, sx = 1, sz = 1) => {
+    const mesh = part(new THREE.CapsuleGeometry(r, len, 3, 10), m, x, y, z);
+    mesh.scale.set(sx, 1, sz);
+    return mesh;
+  };
+  const ball = (r, m, x, y, z, sx = 1, sy = 1, sz = 1) => {
+    const mesh = part(new THREE.SphereGeometry(r, 12, 8), m, x, y, z);
+    mesh.scale.set(sx, sy, sz);
+    return mesh;
+  };
 
-  // Tapered torso: narrow waist under a broad chest reads as a person rather
-  // than a crate, which is most of what a silhouette needs at phone size.
-  spine.add(part(RB(0.40, 0.24, 0.26), mCloth, 0, 0.14, 0));      // waist
-  const torso = part(RB(0.50, 0.40, 0.29), mArmor, 0, 0.42, 0);   // ribcage
-  spine.add(torso);
-  spine.add(part(RB(0.54, 0.16, 0.31), mArmor, 0, 0.58, 0));      // upper chest
-  // plate carrier, magazine pouches and gold trim
-  spine.add(part(RB(0.40, 0.30, 0.345), mAccent, 0, 0.47, 0.005));
-  spine.add(part(RB(0.42, 0.045, 0.35), mGold, 0, 0.31, 0.01));
-  for (let i = -1; i <= 1; i++) {
-    spine.add(part(RB(0.10, 0.12, 0.07), mRubber, i * 0.12, 0.30, 0.18));
-  }
-  // belt
-  spine.add(part(RB(0.44, 0.07, 0.29), mRubber, 0, 0.05, 0));
-  // shoulder pads, angled outward
-  const padL = part(RB(0.17, 0.17, 0.27), mAccent, -0.33, 0.60, 0);
-  padL.rotation.z = 0.18; spine.add(padL);
-  const padR = part(RB(0.17, 0.17, 0.27), mAccent, 0.33, 0.60, 0);
-  padR.rotation.z = -0.18; spine.add(padR);
+  // pelvis and torso
+  spine.add(part(RB(0.36, 0.2, 0.24), mCloth, 0, 0.06, 0));                    // pelvis
+  spine.add(cap(0.19, 0.26, mCloth, 0, 0.38, 0, 1.28, 0.78));                  // shirt torso
+  // plate carrier: front and back plates, side cummerbund, shoulder straps
+  spine.add(part(RB(0.42, 0.36, 0.07), mArmor, 0, 0.42, 0.135));
+  spine.add(part(RB(0.42, 0.38, 0.07), mArmor, 0, 0.43, -0.13));
+  spine.add(part(RB(0.47, 0.16, 0.3), mArmor, 0, 0.3, 0));
+  for (const sx of [-0.13, 0.13]) spine.add(part(RB(0.07, 0.05, 0.3), mArmor, sx, 0.62, 0));
+  // magazine pouches and radio
+  for (let i = -1; i <= 1; i++) spine.add(part(RB(0.1, 0.13, 0.06), mRubber, i * 0.12, 0.33, 0.18));
+  spine.add(part(RB(0.06, 0.14, 0.06), mRubber, -0.2, 0.5, 0.15));
+  spine.add(part(RB(0.44, 0.04, 0.32), mGold, 0, 0.215, 0));                  // trim
+  spine.add(part(RB(0.4, 0.07, 0.27), mRubber, 0, 0.12, 0));                  // belt
+  // backpack with a bedroll on top: the silhouette that reads "battle royale"
+  spine.add(part(RB(0.34, 0.4, 0.17), mAccent, 0, 0.42, -0.25));
+  spine.add(part(RB(0.26, 0.16, 0.08), mCloth, 0, 0.33, -0.36));
+  const roll = part(new THREE.CylinderGeometry(0.07, 0.07, 0.36, 10), mCloth, 0, 0.67, -0.25);
+  roll.rotation.z = Math.PI / 2; spine.add(roll);
+  // shoulders
+  spine.add(ball(0.1, mAccent, -0.29, 0.6, 0, 1.15, 0.85, 1.1));
+  spine.add(ball(0.1, mAccent, 0.29, 0.6, 0, 1.15, 0.85, 1.1));
   // neck
-  spine.add(part(new THREE.CylinderGeometry(0.075, 0.085, 0.10, 8), mSkin, 0, 0.70, 0));
+  spine.add(cap(0.06, 0.06, mSkin, 0, 0.71, 0));
 
-  const head = new THREE.Group(); head.position.y = 0.78; spine.add(head);
-  head.add(part(RB(0.235, 0.27, 0.245), mSkin, 0, 0.02, 0));
-  head.add(part(RB(0.16, 0.09, 0.06), mSkin, 0, -0.05, 0.13));   // jaw/chin
-  // shemagh wrapped over the crown and down the back of the neck
-  head.add(part(RB(0.30, 0.15, 0.30), mCloth, 0, 0.16, 0));
-  head.add(part(RB(0.28, 0.24, 0.10), mCloth, 0, -0.03, -0.135));
-  const drape = part(RB(0.30, 0.18, 0.05), mCloth, 0, -0.14, -0.10);
-  drape.rotation.x = -0.35; head.add(drape);
-  // octopus goggles: visor band + two round lenses + tiny tentacle nubs
-  head.add(part(RB(0.275, 0.085, 0.055), mRubber, 0, 0.045, 0.125));
-  const lens = new THREE.SphereGeometry(0.052, 10, 8);
-  head.add(part(lens, mVisor, -0.068, 0.048, 0.15));
-  head.add(part(lens, mVisor, 0.068, 0.048, 0.15));
-  head.add(part(RB(0.30, 0.05, 0.26), mRubber, 0, 0.055, -0.01));  // strap
+  const head = new THREE.Group(); head.position.y = 0.8; spine.add(head);
+  head.add(ball(0.125, mSkin, 0, 0.02, 0, 0.95, 1.08, 1));                    // head
+  head.add(ball(0.055, mSkin, 0, -0.06, 0.08, 1.1, 0.8, 0.9));               // jaw
+  // shemagh round the neck and lower face
+  head.add(part(new THREE.CylinderGeometry(0.115, 0.13, 0.1, 12), mCloth, 0, -0.09, 0));
+  // helmet: shell, brim and side rails
+  head.add(part(new THREE.SphereGeometry(0.152, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), mArmor, 0, 0.04, -0.005));
+  head.add(part(new THREE.CylinderGeometry(0.158, 0.158, 0.035, 14), mArmor, 0, 0.045, -0.005));
+  for (const sx of [-1, 1]) head.add(part(RB(0.02, 0.05, 0.16), mRubber, sx * 0.152, 0.07, 0));
+  // octopus goggles: band, two lenses, tentacle nubs
+  head.add(part(RB(0.25, 0.055, 0.05), mRubber, 0, 0.03, 0.105));
+  const lens = new THREE.SphereGeometry(0.045, 10, 8);
+  head.add(part(lens, mVisor, -0.058, 0.032, 0.125));
+  head.add(part(lens, mVisor, 0.058, 0.032, 0.125));
   if (opts.emblem !== false) {
-    const nub = new THREE.SphereGeometry(0.022, 6, 4);
-    for (let i = 0; i < 4; i++) {
-      head.add(part(nub, mGold, -0.105 + i * 0.07, 0.10, 0.145));
-    }
-    // OCTA emblem on the chest
-    spine.add(part(new THREE.SphereGeometry(0.055, 10, 8), mGold, 0, 0.50, 0.185));
+    const nub = new THREE.SphereGeometry(0.02, 6, 4);
+    for (let i = 0; i < 4; i++) head.add(part(nub, mGold, -0.09 + i * 0.06, 0.15, 0.1));
+    spine.add(part(new THREE.SphereGeometry(0.05, 10, 8), mGold, 0, 0.5, 0.175));   // OCTA emblem
   }
 
-  // Arms: upper arm, forearm, glove — a two-segment taper reads far better than
-  // one straight box, even without a skeleton.
+  // Arms: sleeve, forearm, glove; pivot at the shoulder.
   const buildArm = (side) => {
     const g = new THREE.Group();
-    g.position.set(side * 0.345, 0.60, 0);
-    g.add(part(RB(0.135, 0.26, 0.135), mArmor, 0, -0.13, 0));
-    g.add(part(RB(0.115, 0.24, 0.115), mCloth, 0, -0.37, 0));
-    g.add(part(RB(0.125, 0.06, 0.125), mGold, 0, -0.505, 0));   // cuff
-    g.add(part(RB(0.115, 0.10, 0.13), mRubber, 0, -0.565, 0.01)); // glove
+    g.position.set(side * 0.33, 0.6, 0);
+    g.add(cap(0.068, 0.16, mCloth, 0, -0.14, 0));
+    g.add(part(RB(0.15, 0.1, 0.15), mAccent, 0, -0.07, 0));                  // upper arm guard
+    g.add(cap(0.058, 0.18, mCloth, 0, -0.37, 0));
+    g.add(part(new THREE.CylinderGeometry(0.066, 0.066, 0.05, 10), mGold, 0, -0.475, 0));   // cuff
+    g.add(ball(0.062, mRubber, 0, -0.545, 0.01, 1, 1.15, 1.1));              // glove
     spine.add(g);
     return g;
   };
   const armL = buildArm(-1);
   const armR = buildArm(1);
 
-  // Legs: thigh, shin, boot.
+  // Legs: thigh, knee pad, shin, boot; pivot at the hip.
   const buildLeg = (side) => {
     const g = new THREE.Group();
-    g.position.set(side * 0.135, 0, 0);
-    g.add(part(RB(0.175, 0.30, 0.185), mCloth, 0, -0.16, 0));
-    g.add(part(RB(0.145, 0.26, 0.16), mCloth, 0, -0.44, 0));
-    g.add(part(RB(0.165, 0.09, 0.17), mArmor, 0, -0.30, 0.02));  // knee pad
-    g.add(part(RB(0.175, 0.11, 0.26), mRubber, 0, -0.615, 0.035)); // boot
+    g.position.set(side * 0.12, 0, 0);
+    g.add(cap(0.088, 0.2, mCloth, 0, -0.18, 0));
+    g.add(part(RB(0.06, 0.12, 0.13), mRubber, side * 0.085, -0.2, 0.02));    // thigh pocket
+    g.add(cap(0.072, 0.2, mCloth, 0, -0.45, 0));
+    g.add(ball(0.07, mArmor, 0, -0.32, 0.055, 1.05, 1.05, 0.7));             // knee pad
+    g.add(part(RB(0.15, 0.12, 0.26), mRubber, 0, -0.615, 0.035));            // boot
+    g.add(part(RB(0.155, 0.035, 0.27), mArmor, 0, -0.665, 0.035));           // sole
     hips.add(g);
     return g;
   };
@@ -266,23 +281,77 @@ function compactRig(rig) {
 }
 
 /** SAEED — hero colours: black/deep-purple tactical armour with gold detail. */
-export function buildSaeed() {
+export function buildSaeed(skin = null) {
   return buildHumanoid({
-    primary: PALETTE.armor, accent: PALETTE.purple, gold: PALETTE.gold,
-    cloth: PALETTE.cloth, emblem: true,
+    primary: skin?.primary ?? PALETTE.armor, accent: skin?.accent ?? PALETTE.purple,
+    gold: skin?.gold ?? PALETTE.gold, cloth: skin?.cloth ?? PALETTE.cloth,
+    visor: skin?.visor, emblem: true,
   });
 }
 
+/**
+ * Parachute canopy in EVENTO purple and gold panels, with rigging lines down
+ * to the harness. One shared material and vertex colours: two draw calls.
+ */
+export function buildParachute() {
+  const root = new THREE.Group();
+  const geo = new THREE.SphereGeometry(2.6, 16, 6, 0, Math.PI * 2, 0, Math.PI / 2.4);
+  geo.scale(1, 0.5, 1);
+  const pos = geo.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  const purple = new THREE.Color(0x7a4dff).convertSRGBToLinear();
+  const gold = new THREE.Color(0xe8bd47).convertSRGBToLinear();
+  for (let i = 0; i < pos.count; i++) {
+    const a = Math.atan2(pos.getZ(i), pos.getX(i)) + Math.PI;
+    const c = Math.floor(a / (Math.PI * 2) * 8) % 2 ? gold : purple;
+    colors.set([c.r, c.g, c.b], i * 3);
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  const canopyMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, side: THREE.DoubleSide });
+  const canopy = new THREE.Mesh(geo, canopyMat);
+  canopy.position.y = 4.2;
+  canopy.castShadow = true;
+  root.add(canopy);
+  const lineMat = new THREE.MeshBasicMaterial({ color: 0x2a2238 });
+  const lines = [];
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    const top = new THREE.Vector3(Math.cos(a) * 2.2, 4.4, Math.sin(a) * 2.2);
+    const bottom = new THREE.Vector3(0, 1.45, 0);
+    const len = top.distanceTo(bottom);
+    const g = new THREE.CylinderGeometry(0.012, 0.012, len, 3);
+    g.translate(0, len / 2, 0);
+    const dir = top.clone().sub(bottom).normalize();
+    g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir));
+    g.translate(bottom.x, bottom.y, bottom.z);
+    lines.push(g);
+  }
+  const rig = new THREE.Mesh(mergeGeometries(lines, false), lineMat);
+  lines.forEach((g) => g.dispose());
+  root.add(rig);
+  root.visible = false;
+  return {
+    root,
+    dispose() { geo.dispose(); rig.geometry.dispose(); canopyMat.dispose(); lineMat.dispose(); },
+  };
+}
+
+// Distinct tactical palettes so ten players read apart at a glance: desert
+// tan, urban grey, olive, navy, maroon, multicam-ish brown...
 const BOT_SKINS = [
-  { primary: 0x3a2f28, accent: 0x8c5a2b, gold: 0xbfae7a },
-  { primary: 0x24313a, accent: 0x2b7f8c, gold: 0xa8c0c4 },
-  { primary: 0x33243a, accent: 0x8c2b6b, gold: 0xc4a0bb },
-  { primary: 0x2c3a24, accent: 0x5a8c2b, gold: 0xb6c47a },
-  { primary: 0x3a2424, accent: 0x8c2b2b, gold: 0xc47a7a },
+  { primary: 0x8a7350, accent: 0x5c4a30, gold: 0xc9b07a, cloth: 0x6e5d43 },
+  { primary: 0x5d6670, accent: 0x2b7f8c, gold: 0xa8c0c4, cloth: 0x4a5058 },
+  { primary: 0x56613f, accent: 0x3d4a2a, gold: 0xb6c47a, cloth: 0x4b5536 },
+  { primary: 0x2f3e5c, accent: 0x4a6aa0, gold: 0xa0b4d8, cloth: 0x2a3550 },
+  { primary: 0x6a2f34, accent: 0x9a3b3b, gold: 0xd9a08a, cloth: 0x4f2a2d },
+  { primary: 0x7a6248, accent: 0x9a7a4a, gold: 0xd8c08a, cloth: 0x5a4a38 },
+  { primary: 0x40464c, accent: 0xc9772b, gold: 0xe8b060, cloth: 0x33383d },
+  { primary: 0x4a3b5c, accent: 0x7a5aa0, gold: 0xc4a0e0, cloth: 0x3a2f48 },
+  { primary: 0x5a5a48, accent: 0x8a8a5a, gold: 0xd0d0a0, cloth: 0x484838 },
 ];
 export function buildBotModel(index) {
   const skin = BOT_SKINS[index % BOT_SKINS.length];
-  return buildHumanoid({ ...skin, cloth: 0x1d1d22, emblem: false, visor: 0xff5a4a });
+  return buildHumanoid({ ...skin, emblem: false, visor: 0xff5a4a });
 }
 
 /** عم منصور — friendly villager, no armour, coffee pot in hand. */

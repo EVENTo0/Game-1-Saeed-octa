@@ -17,48 +17,80 @@
 
 <!-- ============ IN-GAME HUD ============ -->
 <div id="hud" class="screen hidden" aria-hidden="true">
+  <div id="scope" class="hidden" aria-hidden="true"><i class="sc-h"></i><i class="sc-v"></i><i class="sc-dot"></i></div>
   <div id="crosshair"><span></span><span></span><span></span><span></span></div>
 
   <div class="hud-top">
-    <div class="hud-chip" id="zone-chip">
-      <span class="chip-label" id="zone-label">المنطقة آمنة</span>
-      <span class="chip-value" id="zone-timer">--</span>
-    </div>
-    <div class="hud-chip" id="enemy-chip">
-      <span class="chip-label" data-i18n="enemies">الأعداء</span>
-      <span class="chip-value" id="enemy-count">5</span>
-    </div>
     <canvas id="minimap" width="132" height="132" aria-hidden="true"></canvas>
+  </div>
+  <div class="hud-center-top">
+    <canvas id="compass" width="440" height="34" aria-hidden="true"></canvas>
+    <div class="chip-row">
+      <div class="hud-chip" id="zone-chip">
+        <span class="chip-label" id="zone-label">المنطقة آمنة</span>
+        <span class="chip-value" id="zone-timer">--</span>
+      </div>
+      <div class="hud-chip" id="enemy-chip">
+        <span class="chip-label" data-i18n="enemies">الأعداء</span>
+        <span class="chip-value" id="enemy-count">5</span>
+      </div>
+      <div class="hud-chip" id="kills-chip">
+        <span class="chip-label" data-i18n="kills">الإسقاطات</span>
+        <span class="chip-value" id="kill-count">0</span>
+      </div>
+    </div>
   </div>
 
   <div id="toast-stack" aria-live="polite"></div>
   <div id="zone-warning" class="hidden">المنطقة تضيق</div>
   <div id="damage-vignette"></div>
   <div id="damage-dirs" aria-hidden="true"></div>
+  <div id="hitmarker" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+  <div id="damage-numbers" aria-hidden="true"></div>
+  <div id="kill-feed" aria-live="polite"></div>
+  <div id="elim-banner" class="hidden"><b id="elim-title"></b><span id="elim-sub"></span></div>
+  <div id="drop-chip" class="hud-chip hidden">
+    <span class="chip-label" data-i18n="skydive">قفز حر</span>
+    <span class="chip-value" id="drop-alt">80m</span>
+  </div>
+  <div id="coach-hint" class="hidden"></div>
+  <div id="quest-chip" class="hud-chip hidden">
+    <span class="q-ico">☕</span><span class="chip-label" id="quest-text"></span><span class="chip-value" id="quest-dist">0m</span>
+  </div>
+  <div id="speedo" class="hidden">
+    <b id="speedo-v">0</b><small>km/h</small>
+    <div class="speedo-hp"><i id="speedo-hp"></i></div>
+  </div>
+  <div id="title-card" class="hidden"><small id="tc-round"></small><b id="tc-name"></b></div>
+  <div id="zone-arrow" class="hidden" aria-hidden="true">
+    <span class="za-arrow" id="zone-arrow-icon">▲</span>
+    <span class="za-text"><small data-i18n="toZone">إلى المنطقة</small><b id="zone-dist">0m</b></span>
+  </div>
 
-  <div class="hud-bottom-left">
-    <div class="health-wrap">
-      <div class="health-bar"><div id="health-fill"></div></div>
-      <div class="health-num"><span id="health-value">100</span></div>
+  <!-- bottom centre: weapon slots over armour + health, as in modern mobile BRs -->
+  <div class="hud-vitals" id="vitals">
+    <div class="weapon-slots">
+      <div class="wslot on" id="weapon-panel">
+        <span class="ws-name" id="weapon-name">لا يوجد سلاح</span>
+        <span class="ws-ammo" id="ammo-line"><span id="ammo-mag">0</span><span class="sep">/</span><span id="ammo-reserve">0</span></span>
+      </div>
+      <button class="wslot alt hidden" id="weapon-slot2" data-action="swap" aria-label="switch weapon"><span class="ws-name" id="slot2-name"></span></button>
     </div>
-    <div class="medkit-row">
-      <button class="hud-btn small" data-action="heal" id="btn-heal" aria-label="use med kit">
-        <span class="ico">✚</span><span id="medkit-count">0</span>
-      </button>
+    <div class="vitals-row">
+      <button class="tbtn mini ctx-off" data-action="heal" id="btn-heal" aria-label="use med kit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><em id="medkit-count">0</em></button>
+      <div class="health-wrap">
+        <div class="armor-bar" id="armor-bar"><div id="armor-fill"></div></div>
+        <div class="health-bar"><div id="health-fill"></div></div>
+      </div>
+      <span class="health-num" id="health-value">100</span>
     </div>
   </div>
 
-  <div class="hud-bottom-right">
-    <div id="weapon-panel">
-      <div id="weapon-name">لا يوجد سلاح</div>
-      <div id="ammo-line"><span id="ammo-mag">0</span><span class="sep">/</span><span id="ammo-reserve">0</span></div>
-    </div>
-  </div>
-
-  <div id="pickup-prompt" class="hidden">
+  <!-- contextual action: pick up / drive / get out, tap it or press E -->
+  <button id="pickup-prompt" class="hidden" data-action="interact" type="button">
     <span class="key">E</span>
     <span id="pickup-text">التقاط</span>
-  </div>
+  </button>
 
   <div id="mansour-bubble" class="hidden">
     <strong id="mansour-name">عم منصور</strong>
@@ -66,23 +98,27 @@
   </div>
 
   <!-- ============ TOUCH CONTROLS ============ -->
+  <!-- Small, translucent and only there when they do something. Every one can
+       be moved, resized and faded from Settings → HUD → Customise layout. -->
   <div id="touch-layer">
     <div id="joystick-zone"></div>
     <div id="joystick-base"><div id="joystick-knob"></div></div>
     <div id="look-zone"></div>
 
     <div class="btn-cluster">
-      <button class="hud-btn fire" data-action="fire" aria-label="fire">●</button>
-      <button class="hud-btn" data-action="aim" aria-label="aim">◎</button>
-      <button class="hud-btn" data-action="jump" aria-label="jump">⤒</button>
-      <button class="hud-btn" data-action="crouch" aria-label="crouch">⤓</button>
-      <button class="hud-btn" data-action="reload" aria-label="reload">⟳</button>
-      <button class="hud-btn" data-action="interact" aria-label="interact">✋</button>
-      <button class="hud-btn" data-action="swap" aria-label="switch weapon">⇄</button>
+      <button class="tbtn b-fire" data-action="fire" aria-label="fire"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/></svg></button>
+      <button class="tbtn b-aim" data-action="aim" aria-label="aim"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.2"/><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3"/></svg></button>
+      <button class="tbtn b-jump" data-action="jump" aria-label="jump"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 13l6-6 6 6"/><path d="M6 19l6-6 6 6"/></svg></button>
+      <button class="tbtn b-crouch" data-action="crouch" aria-label="crouch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l6 6 6-6"/><path d="M5 18h14"/></svg></button>
+      <button class="tbtn b-reload ctx-off" data-action="reload" aria-label="reload"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5"/></svg></button>
+      <button class="tbtn b-grenade ctx-off grenade-btn" data-action="grenade" id="btn-grenade" aria-label="grenade"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="11" cy="14.5" rx="6" ry="7"/><path d="M9 7.5h4V5H9z"/><path d="M13 5.5l4-2"/><path d="M5.5 13h11M5.5 16h11"/></svg><em id="grenade-count">0</em></button>
     </div>
+    <button class="tbtn b-firel" data-action="firel" id="btn-firel" aria-label="fire (left)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/></svg></button>
   </div>
 
-  <button id="btn-pause" class="corner-btn" aria-label="pause">❚❚</button>
+  <button id="btn-pause" class="corner-btn" aria-label="pause"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg></button>
+  <button id="btn-eject" class="eject-btn hidden" type="button"><span id="eject-label">قفز</span></button>
+  <div id="conceal-chip" class="hidden" aria-hidden="true">👁 <span data-i18n="concealed">مختبئ</span></div>
 </div>
 
 <!-- ============ SPLASH ============ -->
@@ -94,42 +130,85 @@
   <p class="hint" id="splash-hint" data-i18n="tapToStart">اضغط للبدء</p>
 </div>
 
-<!-- ============ MAIN MENU ============ -->
-<div id="menu" class="screen overlay hidden">
-  <div class="menu-inner">
-    <div class="octa-mark small">🐙</div>
-    <h1 class="brand" data-i18n="title">سعيد رويال</h1>
-    <p class="studio" data-i18n="studio">إيفينتو لتطوير المشاريع</p>
-    <button class="menu-btn primary" id="btn-play" data-i18n="play">ابدأ</button>
-    <button class="menu-btn" id="btn-settings" data-i18n="settings">الإعدادات</button>
-    <div class="lang-toggle" role="group" aria-label="language">
-      <button id="lang-ar" class="lang">AR</button>
-      <span class="lang-sep">|</span>
-      <button id="lang-en" class="lang">EN</button>
+<!-- ============ LOBBY ============ -->
+<div id="menu" class="screen lobby hidden">
+  <div class="lobby-panel">
+    <div class="lobby-brand">
+      <h1 class="brand" data-i18n="title">سعيد رويال</h1>
+      <p class="studio" data-i18n="studio">إيفينتو لتطوير المشاريع</p>
     </div>
-    <p class="hint" data-i18n="controlsHint">حرّك بالعصا اليسرى — انظر بالسحب على اليمين</p>
+    <div class="level-card">
+      <div class="level-badge"><small data-i18n="level">المستوى</small><b id="lv-num">1</b></div>
+      <div class="level-info">
+        <div class="level-bar"><div id="lv-fill"></div></div>
+        <div class="level-meta"><span id="lv-xp">0 / 300 XP</span><span id="lv-record"></span></div>
+      </div>
+    </div>
+    <button class="menu-btn primary play" id="btn-play">
+      <span data-i18n="play">ابدأ</span>
+      <small data-i18n="modeSolo">فردي · 10 لاعبين · جزيرة سعيد</small>
+    </button>
+    <div class="lobby-row">
+      <button class="menu-btn" id="btn-settings" data-i18n="settings">الإعدادات</button>
+      <button class="menu-btn" id="btn-story" data-i18n="story">القصة</button>
+      <div class="lang-toggle" role="group" aria-label="language">
+        <button id="lang-ar" class="lang">AR</button>
+        <button id="lang-en" class="lang">EN</button>
+      </div>
+    </div>
+    <p class="safe-note hidden" id="safe-note"></p>
+    <p class="version" id="app-version">v2.0</p>
+  </div>
+
+  <div class="lobby-side">
+    <section class="side-card">
+      <h3 data-i18n="challenges">تحديات اليوم</h3>
+      <div id="challenge-list" class="challenges"></div>
+    </section>
+    <section class="side-card">
+      <h3 data-i18n="outfit">الزي</h3>
+      <div id="skin-list" class="skin-list"></div>
+    </section>
+    <section class="side-card">
+      <h3 data-i18n="dropZone">موقع الهبوط</h3>
+      <canvas id="drop-map" width="240" height="240" aria-label="drop zone map"></canvas>
+      <p class="drop-note" id="drop-note" data-i18n="dropHint">اضغط على الخريطة لاختيار موقع الهبوط</p>
+    </section>
+  </div>
+</div>
+
+<!-- ============ STORY ============ -->
+<div id="story" class="screen story hidden">
+  <button class="story-skip" id="story-skip" data-i18n="skip">تخطي</button>
+  <div class="story-card">
+    <div class="story-dots" id="story-dots"></div>
+    <p class="story-text" id="story-text"></p>
+    <button class="menu-btn primary story-next" id="story-next" data-i18n="next">التالي</button>
   </div>
 </div>
 
 <!-- ============ SETTINGS ============ -->
 <div id="settings" class="screen overlay hidden">
-  <div class="menu-inner">
-    <h2 data-i18n="settings">الإعدادات</h2>
-    <label class="row"><span data-i18n="sensitivity">حساسية النظر</span>
-      <input type="range" id="set-sens" min="0.3" max="2.5" step="0.1" value="1" /></label>
-    <label class="row"><span data-i18n="quality">جودة الرسوم</span>
-      <select id="set-quality">
-        <option value="low">LOW</option>
-        <option value="med" selected>MED</option>
-        <option value="high">HIGH</option>
-      </select></label>
-    <label class="row"><span>VOLUME</span>
-      <input type="range" id="set-volume" min="0" max="1" step="0.05" value="0.5" /></label>
-    <label class="row"><span data-i18n="aimAssist">مساعدة التصويب</span>
-      <input type="checkbox" id="set-assist" checked /></label>
-    <label class="row"><span data-i18n="haptics">الاهتزاز</span>
-      <input type="checkbox" id="set-haptics" checked /></label>
-    <button class="menu-btn" id="btn-settings-back" data-i18n="back">رجوع</button>
+  <div class="settings-card">
+    <div class="set-head">
+      <h2 data-i18n="settings">الإعدادات</h2>
+      <button class="menu-btn set-back" id="btn-settings-back" data-i18n="back">رجوع</button>
+    </div>
+    <div class="set-tabs" role="tablist"></div>
+    <div class="set-body"></div>
+    <p class="diag" id="diag"></p>
+  </div>
+</div>
+
+<!-- ============ HUD LAYOUT EDITOR ============ -->
+<div id="layout-editor" class="hidden">
+  <div class="le-bar">
+    <span class="le-title" data-i18n="customizeLayout">تخصيص الأزرار</span>
+    <span class="le-sel" id="le-sel" data-i18n="leHint">اسحب أي زر لنقله</span>
+    <label class="le-size"><span data-i18n="set_buttonSize">حجم الأزرار</span>
+      <input type="range" id="le-size" min="0.6" max="1.8" step="0.05" value="1" disabled /></label>
+    <button class="menu-btn" id="le-reset" data-i18n="leReset">افتراضي</button>
+    <button class="menu-btn primary" id="le-done" data-i18n="save">حفظ</button>
   </div>
 </div>
 
@@ -138,6 +217,7 @@
   <div class="menu-inner">
     <h2 data-i18n="paused">إيقاف مؤقت</h2>
     <button class="menu-btn primary" id="btn-resume" data-i18n="resume">متابعة</button>
+    <button class="menu-btn" id="btn-pause-settings" data-i18n="settings">الإعدادات</button>
     <button class="menu-btn" id="btn-restart" data-i18n="restart">إعادة الجولة</button>
     <button class="menu-btn" id="btn-quit" data-i18n="quit">القائمة الرئيسية</button>
   </div>
@@ -145,29 +225,45 @@
 
 <!-- ============ VICTORY ============ -->
 <div id="victory" class="screen overlay hidden">
-  <div class="menu-inner">
-    <div class="octa-mark small">🐙</div>
-    <h1 class="win" data-i18n="victoryTitle">مبروك يا سعيد!</h1>
-    <p class="sub" data-i18n="victorySub">أنت بطل الجولة</p>
-    <p class="tag" data-i18n="victoryTag">VICTORY</p>
-    <div class="stats"><span id="win-kills">0</span> · <span id="win-time">0:00</span></div>
-    <button class="menu-btn primary" id="btn-play-again" data-i18n="playAgain">العب مرة أخرى</button>
-    <button class="menu-btn" id="btn-win-menu" data-i18n="quit">القائمة الرئيسية</button>
+  <div class="menu-inner results-card">
+    <div class="res-head">
+      <div class="placement" id="win-place">#1</div>
+      <div class="res-title">
+        <h1 class="win" data-i18n="victoryTitle">مبروك يا سعيد!</h1>
+        <p class="sub" data-i18n="victorySub">أنت بطل الجولة</p>
+        <p class="tag" data-i18n="victoryTag">VICTORY</p>
+      </div>
+    </div>
+    <div class="res-stats" id="win-stats"></div>
+    <div class="res-xp" id="win-xp"></div>
+    <div class="res-actions">
+      <button class="menu-btn primary" id="btn-play-again" data-i18n="playAgain">العب مرة أخرى</button>
+      <button class="menu-btn" id="btn-win-menu" data-i18n="lobby">الردهة</button>
+    </div>
   </div>
 </div>
 
 <!-- ============ DEFEAT ============ -->
 <div id="defeat" class="screen overlay hidden">
-  <div class="menu-inner">
-    <h1 class="lose" data-i18n="defeatTitle">انتهت الجولة</h1>
-    <p class="sub" data-i18n="defeatSub">حظاً أوفر في الجولة القادمة</p>
-    <p class="tag" data-i18n="defeatTag">TRY AGAIN</p>
-    <div class="stats"><span id="lose-kills">0</span> · <span id="lose-time">0:00</span></div>
-    <button class="menu-btn primary" id="btn-retry" data-i18n="playAgain">العب مرة أخرى</button>
-    <button class="menu-btn" id="btn-lose-menu" data-i18n="quit">القائمة الرئيسية</button>
+  <div class="menu-inner results-card">
+    <div class="res-head">
+      <div class="placement" id="lose-place">#1</div>
+      <div class="res-title">
+        <h1 class="lose" data-i18n="defeatTitle">انتهت الجولة</h1>
+        <p class="sub" id="lose-by"></p>
+        <p class="tag" data-i18n="defeatTag">TRY AGAIN</p>
+      </div>
+    </div>
+    <div class="res-stats" id="lose-stats"></div>
+    <div class="res-xp" id="lose-xp"></div>
+    <div class="res-actions">
+      <button class="menu-btn primary" id="btn-retry" data-i18n="playAgain">العب مرة أخرى</button>
+      <button class="menu-btn" id="btn-lose-menu" data-i18n="lobby">الردهة</button>
+    </div>
   </div>
 </div>
 
+<div id="confetti" aria-hidden="true"></div>
 <div id="rotate-hint" class="hidden"><span data-i18n="landscapeHint">أدر الجهاز أفقياً</span></div>
 <div id="fps-counter" class="hidden">0</div>
 

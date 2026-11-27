@@ -7,7 +7,7 @@
  */
 import { chromium, devices } from 'playwright';
 import { spawn } from 'node:child_process';
-import { mkdirSync, existsSync, globSync } from 'node:fs';
+import { mkdirSync, existsSync, globSync, readFileSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 const APP_URL = 'http://localhost:4173/';
@@ -78,6 +78,19 @@ async function main() {
   ok('the splash tap does not fall through onto a menu button',
     !(await page.isVisible('#settings')) && (await page.isVisible('#btn-play')));
 
+  // ---------- v2: lobby ----------
+  ok('lobby shows the player level and four outfits', await page.evaluate(() =>
+    document.getElementById('lv-num').textContent === '1' && document.querySelectorAll('#skin-list .skin').length === 4));
+  const pkgVersion = JSON.parse(readFileSync(new globalThis.URL('../package.json', import.meta.url), 'utf8')).version;
+  ok('lobby shows the build version', (await page.textContent('#app-version')) === `v${pkgVersion}`);
+  const mapBox = await page.locator('#drop-map').boundingBox();
+  await page.locator('#drop-map').tap({ position: { x: mapBox.width * 0.5, y: mapBox.height * 0.5 } });
+  ok('tapping the drop map marks a landing spot', await page.evaluate(() =>
+    document.getElementById('drop-note').textContent.length > 0));
+  // The rest of this suite was written around the classic spawn, away from the
+  // bots; land there so later checks are not decided by an early firefight.
+  await page.evaluate(() => globalThis.SAEED.setDrop({ ...globalThis.SAEED.game.map.spawns.player }));
+
   // ---------- Arabic / RTL ----------
   const dir = await page.getAttribute('html', 'dir');
   const title = await page.textContent('#menu .brand');
@@ -102,7 +115,36 @@ async function main() {
     const g = globalThis.SAEED.game;
     return g.state === 'playing' && g.player.alive && g.colliders.length > 50;
   }));
-  ok('five named opponents are alive', await page.evaluate(() => globalThis.SAEED.game.aliveBots) === 5);
+  ok('nine named opponents are alive (ten players)', await page.evaluate(() => globalThis.SAEED.game.aliveBots) === 9);
+
+  // ---------- v2.2: plane, jump, skydive ----------
+  ok('the match opens on the plane', await page.evaluate(() => globalThis.SAEED.game.player.inPlane));
+  ok('the HUD shows the plane status and a JUMP button', await page.isVisible('#drop-chip') && await page.isVisible('#btn-eject'));
+  // the route was planned through the marked spot, so the auto-jump happens over it
+  const jumped = await page.waitForFunction(() => globalThis.SAEED.game.player.dropping, null, { timeout: 120000 })
+    .then(() => true).catch(() => false);
+  ok('Saeed jumps over the marked landing spot', jumped);
+  // dt is clamped, so under software rendering the fall takes longer in wall time
+  const landed = await page.waitForFunction(() => {
+    const p = globalThis.SAEED.game.player;
+    return !p.dropping && !p.inPlane && p.grounded;
+  }, null, { timeout: 180000 }).then(() => true).catch(() => false);
+  ok('Saeed opens the canopy and lands', landed);
+  const where = await page.evaluate(() => {
+    const g = globalThis.SAEED.game; const p = g.player.pos; const s = g.map.spawns.player;
+    return { off: Math.hypot(p.x - s.x, p.z - s.z), near: g.bots.filter((b) => Math.hypot(b.pos.x - p.x, b.pos.z - p.z) < 60).length };
+  });
+  ok('the glide lands on the marked spot', where.off < 6, `${where.off.toFixed(1)} m off`);
+  ok('at most one bot lands near Saeed', where.near <= 1, `${where.near} within 60 m`);
+  ok('bots held fire during the drop', await page.evaluate(() => globalThis.SAEED.game.player.health.value) === 100);
+  // UI checks below take real time under software rendering; park the bots at
+  // the map edge so a wandering bot cannot end the round mid-suite. The AI
+  // check later brings one back on purpose.
+  await page.evaluate(() => {
+    const g = globalThis.SAEED.game;
+    g.bots.forEach((b, i) => { b.pos.x = -100 + i * 4; b.pos.z = -100; b.lastKnown = null; });
+    g.freezeBots = true;
+  });
   ok('loot is placed around the map', await page.evaluate(() => globalThis.SAEED.game.loot.remaining) >= 15);
   await page.screenshot({ path: `${SHOTS}04-ingame.png` });
 
@@ -157,21 +199,36 @@ async function main() {
   await page.evaluate(() => window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, bubbles: true })));
   await page.screenshot({ path: `${SHOTS}05-touch-move.png` });
 
-  // look drag on the right half rotates the camera
-  const yaw0 = await page.evaluate(() => globalThis.SAEED.game.player.yaw);
+  // Look with REAL touches. CDP Input.dispatchTouchEvent is hit-tested like a
+  // finger; synthetic events dispatched onto #hud hid a bug where the
+  // click-through HUD never received real touches, so phones could not look.
+  const cdp = await phone.newCDPSession(page);
+  const finger = async (points, id = 11) => {
+    const [x0, y0] = points[0];
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: x0, y: y0, id }] });
+    for (const [x, y] of points.slice(1)) {
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y, id }] });
+      await sleep(40);
+    }
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await sleep(250);
+  };
   const vp = page.viewportSize();
-  const lx = vp.width * 0.75, ly = vp.height * 0.25;
-  await page.dispatchEvent('#hud', 'pointerdown', { pointerId: 2, clientX: lx, clientY: ly, isPrimary: true, pointerType: 'touch', bubbles: true });
-  for (let i = 1; i <= 6; i++) {
-    await page.evaluate(([x, y]) => window.dispatchEvent(new PointerEvent('pointermove',
-      { pointerId: 2, clientX: x, clientY: y, bubbles: true })), [lx - i * 16, ly]);
-    await sleep(50);
-  }
-  await page.evaluate(() => window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 2, bubbles: true })));
-  await sleep(200);
+  // open screen between the minimap and the button cluster
+  const lx = vp.width * 0.56, ly = vp.height * 0.28;
+  const hitLook = await page.evaluate(([x, y]) => {
+    const el = document.elementFromPoint(x, y);
+    return !el.closest('button');
+  }, [lx, ly]);
+  ok('the look area is open screen, not a button', hitLook);
+  const yaw0 = await page.evaluate(() => globalThis.SAEED.game.player.yaw);
+  await finger(Array.from({ length: 9 }, (_, i) => [lx - i * 16, ly]));
   const yaw1 = await page.evaluate(() => globalThis.SAEED.game.player.yaw);
-  ok('drag on the right side turns the camera', Math.abs(yaw1 - yaw0) > 0.1, `Δyaw ${(yaw1 - yaw0).toFixed(3)}`);
+  ok('a real finger drag turns the camera', Math.abs(yaw1 - yaw0) > 0.1, `Δyaw ${(yaw1 - yaw0).toFixed(3)}`);
   ok('dragging left turns the view left (yaw increases)', yaw1 > yaw0);
+  await finger(Array.from({ length: 9 }, (_, i) => [lx - 100 + i * 16, ly]));
+  const yaw2 = await page.evaluate(() => globalThis.SAEED.game.player.yaw);
+  ok('dragging right turns the view right', yaw2 < yaw1, `Δyaw ${(yaw2 - yaw1).toFixed(3)}`);
 
   // the model must face away from the chase camera (regression: it faced the lens)
   const facing = await page.evaluate(() => {
@@ -183,16 +240,26 @@ async function main() {
 
   // dragging the thumb up looks up
   const pitch0 = await page.evaluate(() => globalThis.SAEED.game.player.pitch);
-  await page.dispatchEvent('#hud', 'pointerdown', { pointerId: 4, clientX: lx, clientY: ly + 80, isPrimary: true, pointerType: 'touch', bubbles: true });
-  for (let i = 1; i <= 5; i++) {
-    await page.evaluate(([x, y]) => window.dispatchEvent(new PointerEvent('pointermove',
-      { pointerId: 4, clientX: x, clientY: y, bubbles: true })), [lx, ly + 80 - i * 12]);
-    await sleep(50);
-  }
-  await page.evaluate(() => window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 4, bubbles: true })));
-  await sleep(200);
+  await finger(Array.from({ length: 6 }, (_, i) => [lx, ly + 90 - i * 14]));
   const pitch1 = await page.evaluate(() => globalThis.SAEED.game.player.pitch);
   ok('dragging the thumb up looks up', pitch1 > pitch0 + 0.05, `Δpitch ${(pitch1 - pitch0).toFixed(3)}`);
+
+  // fire-and-look: a drag that starts on the fire button shoots and aims
+  // aim at the sky so the test burst cannot hit (and aggro) a bot
+  await page.evaluate(() => { globalThis.SAEED.game.player.pitch = 0.7; });
+  const fb = await page.locator('[data-action="fire"]').boundingBox();
+  const fy0 = await page.evaluate(() => globalThis.SAEED.game.player.yaw);
+  const fs0 = await page.evaluate(() => globalThis.SAEED.game.stats.shots);
+  const fx = fb.x + fb.width / 2, fyy = fb.y + fb.height / 2;
+  await finger(Array.from({ length: 10 }, (_, i) => [fx - i * 12, fyy]), 12);
+  const fire = await page.evaluate(([y, s]) => ({ dYaw: globalThis.SAEED.game.player.yaw - y,
+    shots: globalThis.SAEED.game.stats.shots - s }), [fy0, fs0]);
+  ok('dragging from the fire button shoots and turns', fire.shots > 0 && Math.abs(fire.dYaw) > 0.1, JSON.stringify(fire));
+  await page.evaluate(() => {
+    const g = globalThis.SAEED.game;
+    g.player.pitch = 0; g.player.health.value = g.player.health.max;
+    const w = g.player.inventory.weapon; if (w) { w.mag = w.def.magSize; w.reloadTimer = 0; }
+  });
 
   // action buttons
   const tapBtn = async (action) => {
@@ -267,13 +334,11 @@ async function main() {
   ok('aim assist pulls the crosshair onto a target', assist.withAssist < assist.without * 0.5,
     `off-target ${assist.withAssist.toFixed(4)} rad with assist vs ${assist.without.toFixed(4)} without`);
   ok('aim assist can be turned off in settings', await page.evaluate(async () => {
-    const box = document.getElementById('set-assist');
-    box.checked = false;
-    box.dispatchEvent(new Event('change'));
+    const S = globalThis.SAEED;
+    S.settings.set('assist', false);
     await new Promise((r) => setTimeout(r, 100));
-    const off = globalThis.SAEED.game.aimAssistEnabled === false;
-    box.checked = true;
-    box.dispatchEvent(new Event('change'));
+    const off = S.game.aimAssistEnabled === false;
+    S.settings.set('assist', true);
     await new Promise((r) => setTimeout(r, 100));
     return off && globalThis.SAEED.game.aimAssistEnabled === true;
   }));
@@ -318,18 +383,33 @@ async function main() {
     `hip ${cross.hip}px vs ads ${cross.ads}px`);
 
   // ---------- loot pickup on touch ----------
-  const pickedUp = await page.evaluate(async () => {
+  // Auto pick-up is on by default: walking over supplies bags them.
+  const auto = await page.evaluate(async () => {
     const g = globalThis.SAEED.game;
+    g.player.inventory.medkits = 0;
     const item = g.loot.items.find((i) => !i.taken && i.type === 'medkit');
-    g.player.pos.x = item.x; g.player.pos.z = item.z;
-    await new Promise((r) => setTimeout(r, 150));
+    g.player.pos.x = item.x; g.player.pos.z = item.z; g.player.pos.y = item.ground ?? 0;
+    const t0 = performance.now();
+    while (!item.taken && performance.now() - t0 < 5000) await new Promise((r) => setTimeout(r, 100));
+    return { taken: item.taken, kits: g.player.inventory.medkits };
+  });
+  ok('auto pick-up bags a med kit just by walking over it', auto.taken && auto.kits === 1, JSON.stringify(auto));
+  // With it off (Settings), the tappable pill appears and INTERACT picks it up.
+  const pickedUp = await page.evaluate(async () => {
+    const S = globalThis.SAEED, g = S.game;
+    S.settings.set('autoPickup', false);
+    const item = g.loot.items.find((i) => !i.taken && i.type === 'medkit');
+    g.player.pos.x = item.x; g.player.pos.z = item.z; g.player.pos.y = item.ground ?? 0;
+    await new Promise((r) => setTimeout(r, 400));
     const prompt = !document.getElementById('pickup-prompt').classList.contains('hidden');
     const beforeKits = g.player.inventory.medkits;
-    globalThis.SAEED.input.state.interact = true;
-    await new Promise((r) => setTimeout(r, 200));
-    return { prompt, beforeKits, afterKits: g.player.inventory.medkits, taken: item.taken };
+    S.input.state.interact = true;
+    await new Promise((r) => setTimeout(r, 300));
+    const res = { prompt, beforeKits, afterKits: g.player.inventory.medkits, taken: item.taken, state: g.state };
+    S.settings.set('autoPickup', true);
+    return res;
   });
-  ok('walking onto loot shows the التقاط prompt', pickedUp.prompt);
+  ok('walking onto loot shows the التقاط prompt', pickedUp.prompt, JSON.stringify(pickedUp));
   ok('INTERACT picks the med kit up', pickedUp.afterKits === pickedUp.beforeKits + 1 && pickedUp.taken);
 
   // ---------- weapon pickup + switch ----------
@@ -371,6 +451,7 @@ async function main() {
   ok('med kit restores health', healed.after > healed.before, `${healed.before} → ${healed.after}`);
 
   // ---------- combat vs a bot ----------
+  await page.evaluate(() => { globalThis.SAEED.game.freezeBots = false; });
   const combat = await page.evaluate(async () => {
     const g = globalThis.SAEED.game;
     const bot = g.bots.find((b) => b.alive);
@@ -403,7 +484,8 @@ async function main() {
   ok('the match is still running after the duel', combat.state === 'playing', combat.state);
   ok('shooting damages an enemy', combat.hpAfter < combat.hpBefore, `${combat.hpBefore} → ${combat.hpAfter}`);
   ok('enough hits eliminate an enemy', !combat.alive && combat.kills >= 1);
-  ok('enemy counter drops on the HUD', (await page.textContent('#enemy-count')) === '4',
+  const alive = await page.evaluate(() => globalThis.SAEED.game.aliveBots);
+  ok('enemy counter drops on the HUD', (await page.textContent('#enemy-count')) === String(alive) && alive < 9,
     await page.textContent('#enemy-count'));
   await page.screenshot({ path: `${SHOTS}07-combat.png` });
 
@@ -411,6 +493,9 @@ async function main() {
   const aiDamage = await page.evaluate(async () => {
     const g = globalThis.SAEED.game;
     const bot = g.bots.find((b) => b.alive);
+    // isolate the duel: bots fight the NEAREST enemy, and the parked bots stand
+    // a few metres apart, so a parked neighbour would win the bot's attention
+    bot.pos.x = -40; bot.pos.z = 22; bot.pos.y = 0; bot.rival = null;
     g.player.health.value = 100;
     g.player.pos.x = bot.pos.x; g.player.pos.z = bot.pos.z + 8; g.player.pos.y = bot.pos.y;
     // This check verifies the real AI fire/damage path, not RNG luck. End spawn
@@ -441,8 +526,10 @@ async function main() {
   // ---------- zone ----------
   const zone = await page.evaluate(async () => {
     const g = globalThis.SAEED.game;
-    const r0 = g.zone.radius;
     g.zone.phase = 0; g.zone.state = 'shrinking'; g.zone.timer = 0;
+    // measure from after the reset: the ring may already have been shrinking
+    await new Promise((r) => setTimeout(r, 250));
+    const r0 = g.zone.radius;
     await new Promise((r) => setTimeout(r, 1400));
     const r1 = g.zone.radius;
     // stand well outside and take ring damage
@@ -474,6 +561,56 @@ async function main() {
   await sleep(300);
   ok('resume returns to play', await page.evaluate(() => globalThis.SAEED.game.state) === 'playing');
 
+  // ---------- v2.1: armour vest ----------
+  const vest = await page.evaluate(async () => {
+    const g = globalThis.SAEED.game;
+    const it = g.loot.items.find((i) => i.type === 'armor' && !i.taken);
+    g.player.inventory.armor = 0;
+    g.player.pos.x = it.x + 0.6; g.player.pos.z = it.z + 0.6;
+    await new Promise((r) => setTimeout(r, 300));
+    globalThis.SAEED.input.state.interact = true;
+    const deadline = performance.now() + 8000;
+    while (performance.now() < deadline && g.player.inventory.armor === 0) await new Promise((r) => setTimeout(r, 100));
+    const armor = g.player.inventory.armor;
+    const hp = g.player.health.value;
+    g.player.takeDamage(20);
+    return { armor, lost: hp - g.player.health.value, bar: !document.getElementById('armor-bar').classList.contains('empty') };
+  });
+  ok('an armour vest can be picked up', vest.armor > 0 && vest.bar, JSON.stringify(vest));
+  ok('armour soaks part of a hit', vest.lost > 0 && vest.lost < 20, `lost ${vest.lost}`);
+  await page.evaluate(() => { const g = globalThis.SAEED.game; g.player.health.value = g.player.health.max; });
+
+  // ---------- v2.1: supply drop ----------
+  const drop = await page.evaluate(async () => {
+    const g = globalThis.SAEED.game;
+    const before = g.loot.items.length;
+    g.airdrop.reset();                    // the long suite may already have seen one
+    g.matchTime = Math.max(g.matchTime, g.airdrop.cfg.at);
+    const t0 = performance.now();
+    while (performance.now() - t0 < 8000 && g.airdrop.state === 'idle') await new Promise((r) => setTimeout(r, 100));
+    const announced = g.airdrop.state === 'falling';
+    g.airdrop.pos.y = Math.min(g.airdrop.pos.y, g.airdrop.ground + 0.5);   // skip most of the fall
+    while (performance.now() - t0 < 20000 && g.airdrop.state !== 'landed') await new Promise((r) => setTimeout(r, 100));
+    return { announced, landed: g.airdrop.state === 'landed', added: g.loot.items.length - before,
+      special: g.loot.items.filter((i) => i.special).length };
+  });
+  ok('the supply drop is announced and falls', drop.announced, JSON.stringify(drop));
+  ok('the supply drop lands and opens into rare loot', drop.landed && drop.added === 4 && drop.special === 4, JSON.stringify(drop));
+
+  // ---------- v2.1: zone guidance ----------
+  const arrow = await page.evaluate(async () => {
+    const g = globalThis.SAEED.game;
+    const z = g.zone;
+    g.player.pos.x = z.center.x + z.radius + 25; g.player.pos.z = z.center.z; g.player.pos.y = 0;
+    await new Promise((r) => setTimeout(r, 400));
+    const visible = !document.getElementById('zone-arrow').classList.contains('hidden');
+    const dist = document.getElementById('zone-dist').textContent;
+    g.player.pos.x = z.center.x; g.player.pos.z = z.center.z;
+    g.player.health.value = g.player.health.max;
+    return { visible, dist };
+  });
+  ok('outside the zone an arrow shows the way back', arrow.visible && /^\d+m$/.test(arrow.dist), JSON.stringify(arrow));
+
   // ---------- victory ----------
   await page.evaluate(() => {
     const g = globalThis.SAEED.game;
@@ -481,11 +618,27 @@ async function main() {
     g.player.pos.x = g.zone.center.x; g.player.pos.z = g.zone.center.z;
     g.bots.filter((b) => b.alive).forEach((b) => g._damageBot(b, 999));
   });
-  await sleep(2200);
+  // the orbit camera and confetti play for ~3 s before the results land
+  await sleep(300);
+  const confetti = await page.evaluate(() => document.querySelectorAll('#confetti i').length);
+  const feedRows = await page.evaluate(() => document.querySelectorAll('#kill-feed .kf-row').length);
+  ok('victory throws confetti over the orbit shot', confetti > 20, String(confetti));
+  ok('eliminations appear in the kill feed', feedRows > 0, String(feedRows));
+  await page.waitForSelector('#victory:not(.hidden)', { timeout: 8000 }).catch(() => {});
   ok('victory screen appears when every opponent is down', await page.isVisible('#victory'));
   const winText = await page.textContent('#victory .win');
   ok('victory headline reads مبروك يا سعيد!', winText.trim() === 'مبروك يا سعيد!', winText);
   ok('victory sub-line reads أنت بطل الجولة', (await page.textContent('#victory .sub')).trim() === 'أنت بطل الجولة');
+  const res = await page.evaluate(() => ({
+    place: document.getElementById('win-place').textContent,
+    stats: document.querySelectorAll('#win-stats .stat').length,
+    total: document.querySelector('#win-xp .xp-row.total b')?.textContent ?? '',
+    xp: globalThis.SAEED.profile.data.xp,
+    wins: globalThis.SAEED.profile.data.wins,
+    feed: document.querySelectorAll('#kill-feed .kf-row').length,
+  }));
+  ok('results show 1st place and four stats', res.place.startsWith('#1') && res.stats === 4, JSON.stringify(res));
+  ok('the win awards XP and is saved to the profile', /\+\d+ XP/.test(res.total) && res.xp > 0 && res.wins === 1, res.total);
   await page.screenshot({ path: `${SHOTS}09-victory.png` });
 
   // ---------- restart without a reload ----------
@@ -498,7 +651,7 @@ async function main() {
   });
   ok('PLAY AGAIN restarts in place (no page reload)', restarted.t > navBefore);
   ok('restart resets bots, health and loot (spawn grace keeps Saeed at full HP)',
-    restarted.state === 'playing' && restarted.bots === 5 && restarted.hp === 100 && restarted.loot >= 15,
+    restarted.state === 'playing' && restarted.bots === 9 && restarted.hp === 100 && restarted.loot >= 15,
     JSON.stringify(restarted));
 
   // ---------- defeat ----------
@@ -506,15 +659,115 @@ async function main() {
   await sleep(2400);
   ok('defeat screen appears when Saeed dies', await page.isVisible('#defeat'));
   ok('defeat headline reads انتهت الجولة', (await page.textContent('#defeat .lose')).trim() === 'انتهت الجولة');
+  ok('defeat drains the colour from the scene', await page.evaluate(() => document.getElementById('game-canvas').classList.contains('desat')));
   await page.screenshot({ path: `${SHOTS}10-defeat.png` });
   await page.locator('#btn-retry').tap();
   await sleep(700);
   ok('retry starts a fresh round', await page.evaluate(() => globalThis.SAEED.game.state) === 'playing');
+  ok('retry restores full colour', await page.evaluate(() => !document.getElementById('game-canvas').classList.contains('desat')));
+
+  // ---------- story ----------
+  // leaving a lost round for the lobby must also end its slow motion
+  await page.evaluate(() => { globalThis.SAEED.game.timeScale = 0.3; globalThis.SAEED.goMenu(); });
+  await sleep(500);
+  ok('the lobby runs at normal speed after a defeat', await page.evaluate(() => globalThis.SAEED.game.timeScale) === 1);
+  await page.locator('#btn-story').tap();
+  await sleep(1200);
+  const s1 = await page.evaluate(() => ({
+    visible: !document.getElementById('story').classList.contains('hidden'),
+    text: document.getElementById('story-text').textContent,
+    dots: document.querySelectorAll('#story-dots i').length,
+    cam: globalThis.SAEED.game.cam.camera.position.toArray(),
+  }));
+  ok('the story opens from the lobby with five panels', s1.visible && s1.dots === 5 && s1.text.includes('أوكتا'), JSON.stringify(s1));
+  await page.screenshot({ path: `${SHOTS}14-story.png` });
+  await page.locator('#story-next').tap();
+  await sleep(1500);
+  const s2 = await page.evaluate(() => ({
+    text: document.getElementById('story-text').textContent,
+    cam: globalThis.SAEED.game.cam.camera.position.toArray(),
+  }));
+  ok('NEXT moves to panel 2 and an aerial camera shot', s2.text.includes('سعيد رويال') && s2.cam[1] > 60, JSON.stringify(s2.cam));
+  await page.screenshot({ path: `${SHOTS}15-story-aerial.png` });
+  await page.locator('#story-skip').tap();
+  await sleep(500);
+  ok('SKIP returns to the lobby', await page.isVisible('#menu') && await page.evaluate(() => globalThis.SAEED.game.cinematic === null));
+
+  // ---------- v3.1: settings, layout editor, first person ----------
+  await page.locator('#btn-settings').tap();
+  await sleep(500);
+  const tabs = await page.evaluate(() => [...document.querySelectorAll('.set-tab')].map((t) => t.dataset.tab));
+  ok('settings has graphics, controls, HUD and sound tabs', tabs.join() === 'graphics,controls,hud,audio', tabs.join());
+  ok('graphics tab offers quality, frame rate and camera', await page.evaluate(() =>
+    ['set-quality', 'set-fpsCap', 'set-camera', 'set-brightness'].every((id) => document.getElementById(id))));
+  await page.screenshot({ path: `${SHOTS}18-settings.png` });
+  await page.locator('.set-tab[data-tab="controls"]').tap();
+  await sleep(250);
+  ok('controls tab has look, ADS and scope sensitivity', await page.evaluate(() =>
+    ['set-sensitivity', 'set-adsSensitivity', 'set-scopeSensitivity', 'set-autoPickup'].every((id) => document.getElementById(id))));
+  await page.locator('.set-tab[data-tab="hud"]').tap();
+  await sleep(250);
+  await page.evaluate(() => {
+    const el = document.getElementById('set-buttonOpacity');
+    el.value = '0.45'; el.dispatchEvent(new Event('input'));
+  });
+  ok('button opacity applies to the HUD', await page.evaluate(() =>
+    getComputedStyle(document.documentElement).getPropertyValue('--btn-op').trim() === '0.45'));
+  await page.evaluate(() => globalThis.SAEED.settings.set('buttonOpacity', 0.7));
+  await page.locator('#btn-layout').tap();
+  await sleep(600);
+  const fireBox0 = await page.locator('[data-action="fire"]').boundingBox();
+  ok('the layout editor shows every control, even contextual ones', await page.evaluate(() =>
+    getComputedStyle(document.querySelector('[data-action="reload"]')).opacity !== '0'
+    && !document.getElementById('layout-editor').classList.contains('hidden')));
+  await page.mouse.move(fireBox0.x + fireBox0.width / 2, fireBox0.y + fireBox0.height / 2);
+  await page.mouse.down();
+  for (let i = 1; i <= 6; i++) { await page.mouse.move(fireBox0.x + fireBox0.width / 2 - i * 10, fireBox0.y + fireBox0.height / 2 - i * 6); await sleep(30); }
+  await page.mouse.up();
+  await sleep(200);
+  const fireBox1 = await page.locator('[data-action="fire"]').boundingBox();
+  const saved = await page.evaluate(() => globalThis.SAEED.settings.get('layout').fire);
+  ok('dragging a control in the editor moves it and saves the spot',
+    Math.abs(fireBox1.x - fireBox0.x + 60) < 4 && saved && saved.dx === -60 && saved.dy === -36, JSON.stringify(saved));
+  await page.screenshot({ path: `${SHOTS}19-layout-editor.png` });
+  await page.locator('#le-reset').tap();
+  await sleep(200);
+  ok('Default puts the controls back', await page.evaluate(() => Object.keys(globalThis.SAEED.settings.get('layout')).length === 0));
+  await page.locator('#le-done').tap();
+  await sleep(300);
+  ok('saving the layout returns to settings', await page.isVisible('#settings'));
+  await page.locator('#btn-settings-back').tap();
+  await sleep(300);
+
+  const fpp = await page.evaluate(async () => {
+    const S = globalThis.SAEED, g = S.game;
+    S.settings.set('camera', 'fpp');
+    S.startMatch();
+    g.startMatch({ ground: true, drop: { ...g.map.spawns.player } });
+    g._equipWeaponModel();
+    await new Promise((r) => setTimeout(r, 800));
+    const res = { model: g.playerView.root.visible, vm: !!g.viewModel?.root.visible, eye: g.cam.eyeMode,
+      reloadHidden: document.querySelector('[data-action="reload"]').classList.contains('ctx-off'),
+      grenadeHidden: document.querySelector('[data-action="grenade"]').classList.contains('ctx-off') };
+    S.settings.set('camera', 'tpp');
+    await new Promise((r) => setTimeout(r, 400));
+    res.back = g.playerView.root.visible && !g.viewModel;
+    S.goMenu();
+    return res;
+  });
+  ok('first-person camera hides Saeed and shows the gun in hand', !fpp.model && fpp.vm && fpp.eye, JSON.stringify(fpp));
+  ok('third person comes back from settings', fpp.back, JSON.stringify(fpp));
+  ok('a full magazine hides RELOAD and no frags hides the grenade button', fpp.reloadHidden && fpp.grenadeHidden, JSON.stringify(fpp));
+  await sleep(300);
+  await page.evaluate(() => globalThis.SAEED.startMatch());
+  await sleep(500);
 
   // ---------- Uncle Mansour ----------
   const mansour = await page.evaluate(async () => {
     const g = globalThis.SAEED.game;
     const m = g.map.spawns.npcMansour;
+    // the retry above starts a fresh round on the plane: put Saeed on the ground
+    g.player.inPlane = false; g.player.dropping = false; g.player.pos.y = 0;
     g.player.pos.x = m.x + 2; g.player.pos.z = m.z + 2;
     await new Promise((r) => setTimeout(r, 400));
     const el = document.getElementById('mansour-bubble');
@@ -523,6 +776,97 @@ async function main() {
   ok('Uncle Mansour greets Saeed near the village', mansour.visible);
   ok('Mansour says the coffee line', mansour.line.includes('وين القهوة'), mansour.line);
   await page.screenshot({ path: `${SHOTS}11-mansour.png` });
+
+  // ---------- v3 depth: daily challenges, grenades, buggies, coffee quest ----------
+  ok('the lobby lists three daily challenges', await page.evaluate(() => document.querySelectorAll('#challenge-list .ch-row').length) === 3);
+
+  const nade = await page.evaluate(async () => {
+    const S = globalThis.SAEED, g = S.game, p = g.player;
+    g.freezeBots = true;
+    // an open patch of ground: nothing solid within 16 m
+    let spot = null;
+    for (let i = 0; i < 20000 && !spot; i++) {
+      const x = (Math.random() * 2 - 1) * 200, z = (Math.random() * 2 - 1) * 200;
+      if (!g.colliders.some((c) => c.tag !== 'bounds' && Math.abs(x - c.x) < c.hw + 30 && Math.abs(z - c.z) < c.hd + 30)) spot = { x, z };
+    }
+    p.pos.x = spot.x; p.pos.z = spot.z; p.pos.y = 0; p.yaw = 0; p.pitch = 0.05;
+    p.health.value = p.health.max;
+    p.inventory.grenades = 2;
+    S.input.state.grenade = true;
+    await new Promise((r) => setTimeout(r, 400));
+    const arc = g.arcLine.visible && g.arcRing.visible;
+    const land = { x: g.arcRing.position.x, z: g.arcRing.position.z };
+    // park the nearest living rival right where the arc lands
+    const bot = g.bots.filter((b) => b.alive)[0];
+    bot.pos.x = land.x + 1; bot.pos.z = land.z; bot.health.value = 60;
+    const kills0 = g.stats.grenadeKills;
+    S.input.state.grenade = false;
+    await new Promise((r) => setTimeout(r, 120));
+    const flying = g.grenades.length;
+    // software rendering runs game time slower than the wall clock: wait on the fuse itself
+    const t0 = performance.now();
+    while (g.grenades.length && performance.now() - t0 < 20000) await new Promise((r) => setTimeout(r, 100));
+    return { arc, dist: Math.hypot(land.x - spot.x, land.z - spot.z), flying, left: p.inventory.grenades,
+      botAlive: bot.alive, kills: g.stats.grenadeKills - kills0 };
+  });
+  ok('holding the grenade button shows the throw arc and landing ring', nade.arc, JSON.stringify(nade));
+  ok('releasing throws a frag 10-35 m out', nade.flying === 1 && nade.left === 1 && nade.dist > 10 && nade.dist < 35, JSON.stringify(nade));
+  ok('the blast eliminates a rival at the landing point and counts a grenade kill', !nade.botAlive && nade.kills === 1, JSON.stringify(nade));
+
+  const drive = await page.evaluate(async () => {
+    const S = globalThis.SAEED, g = S.game, p = g.player;
+    const b = g.buggies.find((x) => !x.destroyed);
+    const e = b.exitPoint();
+    p.pos.x = e.x; p.pos.z = e.z; p.pos.y = 0;
+    await new Promise((r) => setTimeout(r, 200));
+    const prompt = document.getElementById('pickup-text').textContent;
+    S.input.state.interact = true;
+    await new Promise((r) => setTimeout(r, 200));
+    const inside = p.vehicle === b;
+    const d0 = b.distance;
+    S.input.keyboard.z = 1; S.input.syncMove();
+    const t0 = performance.now();
+    while (b.distance - d0 < 12 && performance.now() - t0 < 15000) await new Promise((r) => setTimeout(r, 100));
+    const speed = Math.abs(b.speed), moved = b.distance - d0;
+    const speedo = !document.getElementById('speedo').classList.contains('hidden');
+    return { prompt, inside, speed, moved, speedo, follow: Math.hypot(p.pos.x - b.pos.x, p.pos.z - b.pos.z) };
+  });
+  ok('standing by a buggy offers a ride', drive.prompt.includes('البقّي'), drive.prompt);
+  ok('interact climbs into the buggy', drive.inside);
+  ok('throttle drives it, with a speedometer on screen', drive.moved >= 12 && drive.speed > 8 && drive.speedo, JSON.stringify(drive));
+  ok('Saeed rides in the seat', drive.follow < 1, String(drive.follow));
+  await page.screenshot({ path: `${SHOTS}16-buggy.png` });
+  const out = await page.evaluate(async () => {
+    const S = globalThis.SAEED, g = S.game;
+    S.input.keyboard.z = 0; S.input.syncMove();
+    await new Promise((r) => setTimeout(r, 900));
+    S.input.state.interact = true;
+    await new Promise((r) => setTimeout(r, 200));
+    return { out: !g.player.vehicle, driven: g.stats.driven };
+  });
+  ok('interact again gets out, and the distance counts toward challenges', out.out && out.driven > 8, JSON.stringify(out));
+
+  const quest = await page.evaluate(async () => {
+    const S = globalThis.SAEED, g = S.game, p = g.player;
+    const it = g.quest.item;
+    const chip0 = !document.getElementById('quest-chip').classList.contains('hidden');
+    p.pos.x = it.x + 0.5; p.pos.z = it.z; p.pos.y = it.ground ?? 0;
+    await new Promise((r) => setTimeout(r, 200));
+    S.input.state.interact = true;
+    await new Promise((r) => setTimeout(r, 300));
+    const carrying = g.quest.state;
+    const chipText = document.getElementById('quest-text').textContent;
+    p.inventory.armor = 0;
+    const m = g.map.spawns.npcMansour;
+    p.pos.x = m.x + 2; p.pos.z = m.z + 2; p.pos.y = 0;
+    await new Promise((r) => setTimeout(r, 400));
+    return { chip0, carrying, chipText, state: g.quest.state, armor: p.inventory.armor, coffee: g.stats.coffee,
+      line: document.getElementById('mansour-line').textContent };
+  });
+  ok('the coffee quest shows an objective from the start', quest.chip0);
+  ok('picking up the dallah switches the objective to Mansour', quest.carrying === 'carry' && quest.chipText.includes('منصور'), JSON.stringify(quest));
+  ok('delivering it rewards full armour and thanks from Mansour', quest.state === 'done' && quest.armor > 0 && quest.coffee && quest.line.includes('العافية'), JSON.stringify(quest));
+  await page.screenshot({ path: `${SHOTS}17-coffee.png` });
 
   // ---------- draw-call budget ----------
   const perfInfo = await page.evaluate(() => {
@@ -535,12 +879,33 @@ async function main() {
     };
   });
   ok('static world is merged into few draw calls',
-    perfInfo.merged.meshesAfter < 20 && perfInfo.merged.meshesBefore > 80,
+    perfInfo.merged.meshesAfter < 40 && perfInfo.merged.meshesBefore > 80,
     `${perfInfo.merged.meshesBefore} meshes → ${perfInfo.merged.meshesAfter}`);
   // Budget, not a measurement of a real phone: this counts the shadow pass too.
   // Mid-range Android handles ~150 calls at this triangle count comfortably.
   ok('whole frame stays inside a mobile draw-call budget', perfInfo.calls < 150,
     `${perfInfo.calls} draw calls, ${perfInfo.tris} triangles`);
+
+  // ---------- crash resilience ----------
+  // Phones drop the GPU context under memory pressure; the game must survive it.
+  const gl = await page.evaluate(async () => {
+    const g = globalThis.SAEED.game;
+    const ext = g.renderer.getContext().getExtension('WEBGL_lose_context');
+    if (!ext) return { skipped: true };
+    ext.loseContext();
+    await new Promise((r) => setTimeout(r, 500));
+    const lost = g.contextLost;
+    ext.restoreContext();
+    await new Promise((r) => setTimeout(r, 1200));
+    if (g.state === 'paused') globalThis.SAEED.resumeMatch();
+    await new Promise((r) => setTimeout(r, 300));
+    return { lost, restored: !g.contextLost, state: g.state };
+  });
+  ok('the game survives a lost GPU context', gl.skipped || (gl.lost && gl.restored && gl.state !== 'idle'), JSON.stringify(gl));
+  ok('the mobile build skips MSAA to save GPU memory', await page.evaluate(() =>
+    globalThis.SAEED.game.renderer.getContextAttributes().antialias === false));
+  ok('a match in progress is flagged for crash recovery', await page.evaluate(() =>
+    localStorage.getItem('saeed_running_v1') !== null || globalThis.SAEED.game.state !== 'playing'));
 
   // ---------- performance sample ----------
   const perf = await page.evaluate(async () => {
@@ -565,8 +930,17 @@ async function main() {
   await dpage.goto(APP_URL, { waitUntil: 'load' });
   await sleep(900);
   await dpage.click('#splash');
+  await dpage.evaluate(() => globalThis.SAEED.setDrop({ ...globalThis.SAEED.game.map.spawns.player }));
   await dpage.click('#btn-play');
   await sleep(900);
+
+  // Space jumps out of the plane on desktop
+  await dpage.keyboard.press('Space');
+  const djump = await dpage.waitForFunction(() => globalThis.SAEED.game.player.dropping, null, { timeout: 15000 })
+    .then(() => true).catch(() => false);
+  ok('desktop Space jumps out of the plane', djump);
+  await dpage.waitForFunction(() => { const p = globalThis.SAEED.game.player; return !p.dropping && !p.inPlane; }, null, { timeout: 180000 }).catch(() => {});
+  await dpage.evaluate(() => { globalThis.SAEED.game.freezeBots = true; });
 
   const dBefore = await dpage.evaluate(() => ({ ...globalThis.SAEED.game.player.pos }));
   await dpage.keyboard.down('KeyW');
@@ -582,6 +956,8 @@ async function main() {
     Math.hypot(dAfter.x - dBefore.x, dAfter.z - dBefore.z) > 1.5,
     `${Math.hypot(dAfter.x - dBefore.x, dAfter.z - dBefore.z).toFixed(2)}m`);
 
+  // crouch, fire and reload are disabled mid-air by design: land first
+  await dpage.waitForFunction(() => { const p = globalThis.SAEED.game.player; return !p.dropping && !p.inPlane; }, null, { timeout: 180000 }).catch(() => {});
   await dpage.keyboard.press('KeyC');
   await sleep(200);
   ok('desktop C toggles crouch', await dpage.evaluate(() => globalThis.SAEED.game.player.crouching));

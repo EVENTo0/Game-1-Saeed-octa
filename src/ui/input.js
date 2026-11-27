@@ -10,7 +10,7 @@ export function createInputState() {
     moveX: 0, moveZ: 0,
     lookDX: 0, lookDY: 0,
     run: false, aim: false, crouch: false, fire: false,
-    jump: false, reload: false, interact: false, swap: false, use: false, weapon: 0,
+    jump: false, reload: false, interact: false, swap: false, use: false, weapon: 0, grenade: false,
   };
 }
 
@@ -21,6 +21,7 @@ export class InputManager {
     this.touch = { x: 0, z: 0, active: false };
     this.sensitivity = 1.0;
     this.enabled = false;
+    this.mouseEnabled = true;     // off on touch devices: taps also emit compat mouse events
     this._bound = [];
   }
   /** Merge keyboard + touch sticks, clamped to the unit disc. */
@@ -39,7 +40,7 @@ export class InputManager {
       lookDX: s.lookDX, lookDY: s.lookDY,
       run: s.run, aim: s.aim, crouch: s.crouch, fire: s.fire,
       jump: s.jump, reload: s.reload, interact: s.interact, swap: s.swap,
-      use: s.use, weapon: s.weapon,
+      use: s.use, weapon: s.weapon, grenade: s.grenade,
     };
     s.lookDX = 0; s.lookDY = 0;
     s.jump = false; s.reload = false; s.interact = false; s.swap = false;
@@ -76,6 +77,7 @@ export class InputManager {
         case 'Digit1': s.weapon = 1; break;
         case 'Digit2': s.weapon = 2; break;
         case 'KeyC': s.crouch = !s.crouch; break;
+        case 'KeyG': s.grenade = true; break;
         case 'ShiftLeft': case 'ShiftRight': s.run = true; break;
         default: break;
       }
@@ -84,9 +86,10 @@ export class InputManager {
     const up = (e) => {
       keys.delete(e.code);
       if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') this.state.run = false;
+      if (e.code === 'KeyG') this.state.grenade = false;
       applyAxes();
     };
-    const blur = () => { keys.clear(); this.state.run = false; applyAxes(); };
+    const blur = () => { keys.clear(); this.state.run = false; this.state.grenade = false; applyAxes(); };
     target.addEventListener('keydown', down);
     target.addEventListener('keyup', up);
     target.addEventListener('blur', blur);
@@ -105,10 +108,11 @@ export class InputManager {
     let lastX = 0, lastY = 0;
 
     const onMove = (e) => {
-      if (!this.enabled) return;
+      if (!this.enabled || !this.mouseEnabled) return;
       if (document.pointerLockElement === canvas) {
-        s.lookDX += (e.movementX || 0) * 0.0022 * this.sensitivity;
-        s.lookDY += (e.movementY || 0) * 0.0022 * this.sensitivity;
+        const k = 0.0022 * this.sensitivity * (this.lookScale ?? 1);
+        s.lookDX += (e.movementX || 0) * k;
+        s.lookDY += (e.movementY || 0) * k;
       } else if (dragActive) {
         // Fallback drag-to-look when pointer lock is unavailable or pending
         s.lookDX += (e.clientX - lastX) * 0.0022 * this.sensitivity;
@@ -118,7 +122,7 @@ export class InputManager {
       }
     };
     const onDown = (e) => {
-      if (!this.enabled) return;
+      if (!this.enabled || !this.mouseEnabled) return;
       dragActive = true;
       lastX = e.clientX;
       lastY = e.clientY;

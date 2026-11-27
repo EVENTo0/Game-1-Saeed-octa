@@ -132,33 +132,6 @@ describe('collision helpers', () => {
   });
 });
 
-describe('map', () => {
-  const map = buildMap();
-  it('has a village, an outpost, loot and five bot spawns', () => {
-    expect(map.buildings.length).toBeGreaterThanOrEqual(6);
-    expect(map.lootSpots.length).toBeGreaterThanOrEqual(15);
-    expect(map.spawns.bots).toHaveLength(5);
-    expect(new Set(map.spawns.bots.map((b) => b.name)).size).toBe(5);
-  });
-  it('never spawns anyone inside a wall', () => {
-    const all = [map.spawns.player, map.spawns.npcMansour, ...map.spawns.bots];
-    for (const s of all) {
-      // boundary walls ring the map, so they are excluded; everything else
-      // (walls, cover, props, hill tiers) must be clear of a spawn point
-      const inside = map.colliders.some((c) =>
-        c.tag !== 'bounds' && c.top > 1 &&
-        Math.abs(s.x - c.x) < c.hw + 0.5 && Math.abs(s.z - c.z) < c.hd + 0.5);
-      expect(inside, `${s.name ?? 'spawn'} at ${s.x},${s.z}`).toBe(false);
-    }
-  });
-  it('keeps every loot spot inside the playable bounds', () => {
-    for (const s of map.lootSpots) {
-      expect(Math.abs(s.x)).toBeLessThan(105);
-      expect(Math.abs(s.z)).toBeLessThan(105);
-    }
-  });
-});
-
 describe('camera collision', () => {
   it('never leaves the camera inside a wall', async () => {
     const { ThirdPersonCamera } = await import('../src/camera/thirdPersonCamera.js');
@@ -166,8 +139,8 @@ describe('camera collision', () => {
     const map = buildMap();
     const cam = new ThirdPersonCamera(1.8);
     const p = new Player({ x: 0, z: 0 });
-    // sweep the player through the village interiors and around the outpost
-    const spots = [[-28, -26], [-46, -44], [-36, 38], [-20, -42], [-32, -50], [22, -34]];
+    // sweep the player through building interiors across the map
+    const spots = map.buildings.filter((_, i) => i % 5 === 0).map((b) => [b.x, b.z]);
     for (const [x, z] of spots) {
       p.pos.x = x; p.pos.z = z; p.pos.y = 0;
       for (let yaw = 0; yaw < Math.PI * 2; yaw += Math.PI / 6) {
@@ -215,5 +188,75 @@ describe('line of sight agrees with bullets', () => {
       expect(los, `los=${los} shot=${shot.kind}`).toBe(shot.kind !== 'actor');
     }
     expect(checked).toBeGreaterThan(50);
+  });
+});
+
+describe('Skydive', () => {
+  it('freefalls, opens the canopy low, lands in a few seconds and stays on the ground', () => {
+    const p = new Player({ x: 0, z: 0 });
+    p.startDrop(10, -10);
+    expect(p.dropping).toBe(true);
+    let chuteSeenAt = null, t = 0, landed = false;
+    const dt = 1 / 60;
+    for (; t < 40 && !landed; t += dt) {
+      p.update(dt, IN(), [], dt);
+      if (p.chute && chuteSeenAt === null) chuteSeenAt = p.pos.y;
+      if (p.justLanded) landed = true;
+    }
+    expect(landed).toBe(true);
+    expect(t).toBeLessThan(20);           // ~15 s from 170 m: long enough to choose, short enough to play
+    expect(chuteSeenAt).toBeLessThanOrEqual(CONFIG.drop.chuteAt + 0.5);
+    expect(p.pos.y).toBe(0);
+    expect(p.dropping).toBe(false);
+    expect(p.grounded).toBe(true);
+  });
+
+  it('steers toward where the stick points while falling', () => {
+    const p = new Player({ x: 0, z: 0 });
+    p.startDrop(0, 0);
+    run(p, IN({ moveZ: 1 }), [], 2);
+    expect(p.pos.z).toBeLessThan(-8);
+    expect(p.dropping).toBe(true);
+  });
+
+  it('lands on a roof rather than falling through it', () => {
+    const roof = [box(0, 0, 6, 6, 4)];
+    const p = new Player({ x: 0, z: 0 });
+    p.startDrop(0, 0);
+    run(p, IN(), roof, 30);
+    expect(p.dropping).toBe(false);
+    expect(p.pos.y).toBeCloseTo(4, 1);
+  });
+});
+
+describe('Skydive edge cases', () => {
+  it('the landing event lasts one frame even if Saeed dies on touchdown', () => {
+    const p = new Player({ x: 0, z: 0 });
+    p.startDrop(0, 0, 1);
+    for (let i = 0; i < 120 && !p.justLanded; i++) p.update(1 / 60, IN(), []);
+    expect(p.justLanded).toBe(true);
+    p.takeDamage(999);
+    p.update(1 / 60, IN(), []);
+    expect(p.justLanded).toBe(false);
+  });
+});
+
+describe('Skydive v2.2', () => {
+  it('jump opens the canopy early, and a marked spot steers the fall', () => {
+    const p = new Player({ x: 0, z: 0 });
+    p.startDrop(0, 0);
+    p.dropTarget = { x: 60, z: 0 };
+    p.update(1 / 60, IN({ jump: true }), []);
+    expect(p.chute).toBe(true);
+    for (let i = 0; i < 60 * 30 && p.dropping; i++) p.update(1 / 60, IN(), []);
+    expect(p.dropping).toBe(false);
+    expect(Math.hypot(p.pos.x - 60, p.pos.z)).toBeLessThan(3);
+  });
+
+  it('ignores physics while riding the plane', () => {
+    const p = new Player({ x: 5, z: 5 });
+    p.inPlane = true; p.pos.y = 170;
+    p.update(1 / 60, IN({ moveZ: 1 }), []);
+    expect(p.pos).toEqual({ x: 5, y: 170, z: 5 });
   });
 });

@@ -48,6 +48,8 @@ export class AudioSystem {
       rifle: { f: 180, decay: 0.13, gain: 0.35 },
       shotgun: { f: 110, decay: 0.26, gain: 0.5 },
       marksman: { f: 90, decay: 0.42, gain: 0.55 },
+      smg: { f: 230, decay: 0.09, gain: 0.28 },
+      dmr: { f: 120, decay: 0.3, gain: 0.48 },
       melee: { f: 400, decay: 0.09, gain: 0.25 },
     }[weaponClass] ?? { f: 180, decay: 0.13, gain: 0.35 };
 
@@ -87,6 +89,21 @@ export class AudioSystem {
   zoneWarn() { this._blip(240, 0.4, 'triangle', 0.18); }
   victory() { [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => this._blip(f, 0.32, 'triangle', 0.24), i * 150)); }
   defeat() { [392, 330, 262].forEach((f, i) => setTimeout(() => this._blip(f, 0.45, 'sine', 0.24), i * 200)); }
+  /** Low boom with a noise crack; quieter with distance. */
+  explosion(distance = 0) {
+    if (!this.enabled || !this.ctx) return;
+    const k = Math.max(0.15, 1 - distance / 60);
+    const t = this._now();
+    const src = this._noise(0.9);
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.setValueAtTime(900, t); lp.frequency.exponentialRampToValueAtTime(120, t + 0.8);
+    const g = this._env(0.9 * k, 0.005, 0.85);
+    src.connect(lp); lp.connect(g); g.connect(this.master);
+    src.start(t); src.stop(t + 0.9);
+    this._blip(55, 0.6, 'sine', 0.5 * k);
+  }
+  tick(distance = 0) { if (distance < 25) this._blip(1800, 0.03, 'square', 0.06 * (1 - distance / 25)); }
+  throwGrenade() { this._blip(420, 0.06, 'triangle', 0.12); }
   _blip(freq, dur, type = 'sine', gain = 0.2) {
     if (!this.enabled || !this.ctx) return;
     const osc = this.ctx.createOscillator();

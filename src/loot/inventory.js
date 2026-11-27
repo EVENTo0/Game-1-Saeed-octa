@@ -1,5 +1,6 @@
 import { WeaponInstance, WEAPONS, AMMO_PICKUP } from '../weapons/weapons.js';
 import { CONFIG } from '../core/config.js';
+import { GRENADE } from '../combat/grenade.js';
 
 /** Two weapon slots + medkits. Deliberately tiny — no grid, no stash. */
 export class Inventory {
@@ -7,6 +8,8 @@ export class Inventory {
     this.slots = [];           // WeaponInstance[]
     this.active = 0;
     this.medkits = 0;
+    this.armor = 0;
+    this.grenades = 0;
     this.maxSlots = CONFIG.match.maxWeapons;
   }
   get weapon() { return this.slots[this.active] ?? null; }
@@ -61,5 +64,21 @@ export class Inventory {
     this.active = (this.active + 1) % this.slots.length;
     return true;
   }
-  reset() { this.slots = []; this.active = 0; this.medkits = 0; }
+  /** A vest pickup refills armour to full; refused when already full. */
+  addArmor() {
+    if (this.armor >= CONFIG.armor.max) return false;
+    this.armor = CONFIG.armor.max;
+    return true;
+  }
+  addGrenade(n = 1) {
+    if (this.grenades >= GRENADE.max) return false;
+    this.grenades = Math.min(GRENADE.max, this.grenades + n);
+    return true;
+  }
+  useGrenade() {
+    if (this.grenades <= 0) return false;
+    this.grenades -= 1;
+    return true;
+  }
+  reset() { this.slots = []; this.active = 0; this.medkits = 0; this.armor = 0; this.grenades = 0; }
 }

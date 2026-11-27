@@ -5,7 +5,8 @@ export function makeLootItem(spot, jitter = 0) {
   const [type, weaponId] = spot.kind.split(':');
   return {
     id: `loot_${nextId++}`,
-    type,                       // 'weapon' | 'ammo' | 'medkit'
+    type,                       // 'weapon' | 'ammo' | 'medkit' | 'armor' | 'grenade' | 'dallah'
+    special: !!spot.special,    // supply-drop loot gets a light beam
     weaponId: weaponId ?? null,
     ammoType: spot.ammoType ?? 'rifle',
     x: spot.x + jitter, z: spot.z + jitter,
@@ -19,10 +20,11 @@ export class LootManager {
     this.items = spots.map((s) => makeLootItem(s));
   }
   /** Nearest un-taken item within pickup range of (x,z). */
-  nearest(x, z, range = CONFIG.loot.pickupRange) {
+  nearest(x, z, range = CONFIG.loot.pickupRange, y = null) {
     let best = null, bestD = range;
     for (const it of this.items) {
       if (it.taken) continue;
+      if (y !== null && Math.abs((it.ground ?? 0) - y) > 2.2) continue;   // a rock top is not in reach from below
       const d = Math.hypot(it.x - x, it.z - z);
       if (d < bestD) { bestD = d; best = it; }
     }
@@ -41,6 +43,20 @@ export class LootManager {
       if (!inventory.addMedkit()) return null;
       item.taken = true;
       return { type: 'medkit', item };
+    }
+    if (item.type === 'armor') {
+      if (!inventory.addArmor()) return null;
+      item.taken = true;
+      return { type: 'armor', item };
+    }
+    if (item.type === 'grenade') {
+      if (!inventory.addGrenade()) return null;
+      item.taken = true;
+      return { type: 'grenade', item };
+    }
+    if (item.type === 'dallah') {                 // Uncle Mansour's coffee pot: a quest item
+      item.taken = true;
+      return { type: 'dallah', item };
     }
     if (item.type === 'ammo') {
       if (!inventory.slots.length) return null;   // nothing to load
